@@ -147,6 +147,30 @@ func (pm *PoolManager) Update() (err error) {
 	return nil
 }
 
+// Remove will remove a pool from the pool manager based on the given URI.
+func (pm *PoolManager) Remove(uri string) {
+	wg := &sync.WaitGroup{}
+	started := time.Now()
+
+	for idx := range pm.Pools {
+		if pm.Pools[idx].Address == uri {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+
+				// Remove the pool by updating the Pools slice
+				log.Debugf("Removing pool: %s", uri)
+				pm.Pools = append(pm.Pools[:i], pm.Pools[i+1:]...)
+			}(idx)
+		}
+	}
+
+	wg.Wait()
+
+	ended := time.Now()
+	log.Debugf("Removed pools in %v", ended.Sub(started))
+}
+
 // Update will connect to PHP-FPM and retrieve the latest data for the pool.
 func (p *Pool) Update() (err error) {
 	p.ScrapeError = nil

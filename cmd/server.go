@@ -33,6 +33,8 @@ var (
 	metricsEndpoint  string
 	scrapeURIs       []string
 	fixProcessCount  bool
+	k8sAutoTracking  bool
+	namespace        string
 )
 
 // serverCmd represents the server command
@@ -49,9 +51,23 @@ to quickly create a Cobra application.`,
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
 		pm := phpfpm.PoolManager{}
+		// Enable dynamic pod tracking if the flag is set
+		if k8sAutoTracking {
+			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
 
-		for _, uri := range scrapeURIs {
-			pm.Add(uri)
+			if namespace == "" {
+				log.Info("Kubernetes namespace not set; setting to default.")
+				namespace = "default" // fallback to 'default' if not set
+			}
+			go func() {
+				if err := phpfpm.DiscoverPods(namespace, &pm); err != nil {
+					log.Error(err)
+				}
+			}()
+		} else {
+			for _, uri := range scrapeURIs {
+				pm.Add(uri)
+			}
 		}
 
 		exporter := phpfpm.NewExporter(pm)
@@ -121,6 +137,9 @@ to quickly create a Cobra application.`,
 func init() {
 	RootCmd.AddCommand(serverCmd)
 
+	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s-autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
+	serverCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace to monitor (defaults to 'default')")
+
 	serverCmd.Flags().StringVar(&listeningAddress, "web.listen-address", ":9253", "Address on which to expose metrics and web interface.")
 	serverCmd.Flags().StringVar(&metricsEndpoint, "web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	serverCmd.Flags().StringSliceVar(&scrapeURIs, "phpfpm.scrape-uri", []string{"tcp://127.0.0.1:9000/status"}, "FastCGI address, e.g. unix:///tmp/php.sock;/status or tcp://127.0.0.1:9000/status")
@@ -133,6 +152,8 @@ func init() {
 		"PHP_FPM_WEB_TELEMETRY_PATH": "web.telemetry-path",
 		"PHP_FPM_SCRAPE_URI":         "phpfpm.scrape-uri",
 		"PHP_FPM_FIX_PROCESS_COUNT":  "phpfpm.fix-process-count",
+		"PHP_FPM_K8S_AUTOTRACKING":   "k8s-autotracking",
+		"PHP_FPM_NAMESPACE":          "namespace",
 	}
 
 	mapEnvVars(envs, serverCmd)
