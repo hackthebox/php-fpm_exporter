@@ -50,7 +50,6 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
-		log.Info("Version: 1.4.0")
 		pm := phpfpm.PoolManager{}
 		// Enable dynamic pod tracking if the flag is set
 		if k8sAutoTracking {
