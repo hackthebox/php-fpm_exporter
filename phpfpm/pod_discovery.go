@@ -49,6 +49,7 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 		return fmt.Errorf("failed to initialize watch session: %s", err)
 	}
 
+	var podPhases = make(map[string]v1.PodPhase)
 	// Watch for pod events
 	go func() {
 		for event := range podWatch.ResultChan() {
@@ -58,42 +59,52 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 				continue
 			}
 
-			log.Debugf("Received event for pod: %s, type: %s", pod.Name, event.Type)
+			podName := pod.Name
+			currentPhase := pod.Status.Phase
+
+			log.Debugf("Received event for pod: %s, type: %s, current phase: %s", podName, event.Type, currentPhase)
+
 			switch event.Type {
 			case "ADDED":
-				go func(p *v1.Pod) {
-					for {
-						if p.Status.Phase == v1.PodRunning {
-							ip := p.Status.PodIP
-							if ip == "" {
-								log.Debugf("Pod %s is running but has no IP assigned yet, retrying...", p.Name)
-								time.Sleep(2 * time.Second)
-								continue
-							}
-							uri := fmt.Sprintf("tcp://%s:8080/status", ip)
-							log.Debugf("Pod added: %s with IP %s", p.Name, ip)
-							pm.Add(uri)
-							log.Debugf("Pools: %s", GetPoolAddresses(pm))
-							return
-						}
-						log.Debugf("Pod %s is not in running state, current phase: %s. Retrying...", p.Name, p.Status.Phase)
-						time.Sleep(10 * time.Second)
+				// Initialize the pod's phase in the map
+				podPhases[podName] = currentPhase
+
+				if currentPhase == v1.PodRunning {
+					ip := pod.Status.PodIP
+					if ip != "" {
+						uri := fmt.Sprintf("tcp://%s:8080/status", ip)
+						log.Infof("New pod %s added and already Running with IP %s", podName, ip)
+						pm.Add(uri)
+					} else {
+						log.Debugf("Pod %s added but has no IP yet", podName)
 					}
-				}(pod)
+				}
+
+			case "MODIFIED":
+				// Check for the Pending → Running transition
+				lastPhase, exists := podPhases[podName]
+				if exists && lastPhase == v1.PodPending && currentPhase == v1.PodRunning {
+					log.Infof("Pod %s transitioned from Pending to Running", podName)
+
+					ip := pod.Status.PodIP
+					if ip != "" {
+						uri := fmt.Sprintf("tcp://%s:8080/status", ip)
+						log.Infof("Adding Running pod %s with IP %s", podName, ip)
+						pm.Add(uri)
+					} else {
+						log.Debugf("Pod %s is Running but has no IP assigned", podName)
+					}
+				}
+				podPhases[podName] = currentPhase
 
 			case "DELETED":
-				ip := pod.Status.PodIP
-				uri := fmt.Sprintf("tcp://%s:8080/status", ip)
-				log.Debugf("Pod deleted: %s with IP %s", pod.Name, ip)
-				pm.Remove(uri)
-			case "MODIFIED":
+				delete(podPhases, podName)
+
 				ip := pod.Status.PodIP
 				if ip != "" {
 					uri := fmt.Sprintf("tcp://%s:8080/status", ip)
-					log.Infof("Pod modified: %s with IP %s. Updating PoolManager.", pod.Name, ip)
-					pm.Add(uri)
-				} else {
-					log.Debugf("Modified pod %s has no assigned IP, skipping...", pod.Name)
+					log.Infof("Removing pod %s with IP %s from PoolManager", podName, ip)
+					pm.Remove(uri)
 				}
 			}
 		}

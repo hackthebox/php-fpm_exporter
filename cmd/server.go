@@ -29,13 +29,12 @@ import (
 
 // Configuration variables
 var (
-	listeningAddress                string
-	metricsEndpoint                 string
-	scrapeURIs                      []string
-	fixProcessCount                 bool
-	k8sAutoTracking                 bool
-	namespace                       string
-	waitForPodsAutodiscoverySeconds = 5
+	listeningAddress string
+	metricsEndpoint  string
+	scrapeURIs       []string
+	fixProcessCount  bool
+	k8sAutoTracking  bool
+	namespace        string
 )
 
 // serverCmd represents the server command
@@ -51,6 +50,7 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
+		log.Info("Version: 1.4.0")
 		pm := phpfpm.PoolManager{}
 		// Enable dynamic pod tracking if the flag is set
 		if k8sAutoTracking {
@@ -60,24 +60,20 @@ to quickly create a Cobra application.`,
 				namespace = "default" // fallback to 'default' if not set
 			}
 
-			wait := time.Second * time.Duration(waitForPodsAutodiscoverySeconds)
-			ctx, cancel := context.WithTimeout(context.Background(), wait)
-			defer cancel()
-
 			done := make(chan struct{})
 			go func() {
 				if err := phpfpm.DiscoverPods(namespace, &pm); err != nil {
 					log.Error(err)
 				}
-				close(done)
 			}()
 
-			select {
-			case <-done:
-				log.Info("Kubernetes pod discovery completed.")
-			case <-ctx.Done():
-				log.Warn("Timeout reached while waiting for Kubernetes pod discovery.")
-			}
+			waitDuration := time.Second * 10
+			log.Info("Waiting for 10 seconds to allow pod discovery...")
+
+			go func() {
+				time.Sleep(waitDuration)
+				done <- struct{}{}
+			}()
 
 		} else {
 			for _, uri := range scrapeURIs {
