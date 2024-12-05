@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	annotationKey = "php-fpm-exporter/scrape"
+	labelKey = "php-fpm-exporter/collect"
 )
 
 // k8sGetClient returns a Kubernetes clientset to interact with the cluster.
@@ -43,7 +43,7 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 
 	// Watch for changes in the pods
 	podWatch, err := clientset.CoreV1().Pods(namespace).Watch(context.TODO(), metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=true", annotationKey),
+		LabelSelector: fmt.Sprintf("%s=true", labelKey),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize watch session: %s", err)
