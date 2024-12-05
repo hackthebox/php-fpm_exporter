@@ -3,7 +3,6 @@ package phpfpm
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -109,12 +108,4 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 		}
 	}()
 	return nil
-}
-
-func GetPoolAddresses(pm *PoolManager) string {
-	var addresses []string
-	for _, pool := range pm.Pools {
-		addresses = append(addresses, pool.Address)
-	}
-	return strings.Join(addresses, ", ")
 }
