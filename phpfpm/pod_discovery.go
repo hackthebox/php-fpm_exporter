@@ -32,7 +32,7 @@ func k8sGetClient() (*kubernetes.Clientset, error) {
 }
 
 // DiscoverPods finds pods with the specified annotation in the given namespace.
-func DiscoverPods(namespace string, pm *PoolManager) error {
+func DiscoverPods(namespace string, pm *PoolManager, port string) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
 	if err != nil {
@@ -47,7 +47,10 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 		return fmt.Errorf("failed to initialize watch session: %s", err)
 	}
 
-	var podPhases = make(map[string]v1.PodPhase)
+	var (
+		podPhases   = make(map[string]v1.PodPhase)
+		uriTemplate = fmt.Sprintf("tcp://%%s:%s/status", port)
+	)
 	// Watch for pod events
 	go func() {
 		for event := range podWatch.ResultChan() {
@@ -70,7 +73,7 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 				if currentPhase == v1.PodRunning {
 					ip := pod.Status.PodIP
 					if ip != "" {
-						uri := fmt.Sprintf("tcp://%s:8080/status", ip)
+						uri := fmt.Sprintf(uriTemplate, ip)
 						log.Infof("New pod %s added and already Running with IP %s", podName, ip)
 						pm.Add(uri)
 					} else {
@@ -86,7 +89,7 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 
 					ip := pod.Status.PodIP
 					if ip != "" {
-						uri := fmt.Sprintf("tcp://%s:8080/status", ip)
+						uri := fmt.Sprintf(uriTemplate, ip)
 						log.Infof("Adding Running pod %s with IP %s", podName, ip)
 						pm.Add(uri)
 					} else {
@@ -100,7 +103,7 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 
 				ip := pod.Status.PodIP
 				if ip != "" {
-					uri := fmt.Sprintf("tcp://%s:8080/status", ip)
+					uri := fmt.Sprintf(uriTemplate, ip)
 					log.Infof("Removing pod %s with IP %s from PoolManager", podName, ip)
 					pm.Remove(uri)
 				}

@@ -35,6 +35,7 @@ var (
 	fixProcessCount  bool
 	k8sAutoTracking  bool
 	namespace        string
+	servicePort      string
 )
 
 // serverCmd represents the server command
@@ -61,7 +62,7 @@ to quickly create a Cobra application.`,
 
 			done := make(chan struct{})
 			go func() {
-				if err := phpfpm.DiscoverPods(namespace, &pm); err != nil {
+				if err := phpfpm.DiscoverPods(namespace, &pm, servicePort); err != nil {
 					log.Error(err)
 				}
 			}()
@@ -149,6 +150,7 @@ func init() {
 
 	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s-autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
 	serverCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace to monitor (defaults to 'default')")
+	serverCmd.Flags().StringVar(&servicePort, "port", "9000", "The port on which the PHP service is exposed.")
 
 	serverCmd.Flags().StringVar(&listeningAddress, "web.listen-address", ":9253", "Address on which to expose metrics and web interface.")
 	serverCmd.Flags().StringVar(&metricsEndpoint, "web.telemetry-path", "/metrics", "Path under which to expose metrics.")
@@ -164,6 +166,7 @@ func init() {
 		"PHP_FPM_FIX_PROCESS_COUNT":  "phpfpm.fix-process-count",
 		"PHP_FPM_K8S_AUTOTRACKING":   "k8s-autotracking",
 		"PHP_FPM_NAMESPACE":          "namespace",
+		"PHP_FPM_SERVICE_PORT":       "servicePort",
 	}
 
 	mapEnvVars(envs, serverCmd)
