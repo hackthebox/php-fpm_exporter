@@ -3,15 +3,35 @@ package phpfpm
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 const (
 	annotationKey = "php-fpm-exporter/scrape"
 )
+
+// k8sGetClient returns a Kubernetes clientset to interact with the cluster.
+// This is intended to be used when the application is running inside a Kubernetes pod.
+func k8sGetClient() (*kubernetes.Clientset, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create in-cluster config: %v", err)
+	}
+
+	// Create a Kubernetes clientset using the in-cluster config
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes clientset: %v", err)
+	}
+
+	return clientset, nil
+}
 
 // DiscoverPods finds pods with the specified annotation in the given namespace.
 func DiscoverPods(namespace string, pm *PoolManager) error {
@@ -46,10 +66,24 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 			log.Debugf("Namespace watching: %s", namespace)
 			switch event.Type {
 			case "ADDED":
-				ip := pod.Status.PodIP
-				uri := fmt.Sprintf("tcp://%s:8080/status", ip)
-				log.Debugf("Pod added: %s with IP %s", pod.Name, ip)
-				pm.Add(uri)
+				go func(p *v1.Pod) {
+					for {
+						if p.Status.Phase == v1.PodRunning {
+							ip := p.Status.PodIP
+							if ip == "" {
+								log.Debugf("Pod %s is running but has no IP assigned yet, retrying...", p.Name)
+								time.Sleep(2 * time.Second)
+								continue
+							}
+							uri := fmt.Sprintf("tcp://%s:8080/status", ip)
+							log.Debugf("Pod added: %s with IP %s", p.Name, ip)
+							pm.Add(uri)
+							return
+						}
+						log.Debugf("Pod %s is not in running state, current phase: %s. Retrying...", p.Name, p.Status.Phase)
+						time.Sleep(2 * time.Second)
+					}
+				}(pod)
 
 			case "DELETED":
 				ip := pod.Status.PodIP
@@ -93,4 +127,12 @@ func getExistingPods(clientset *kubernetes.Clientset, pm *PoolManager, namespace
 		}
 	}
 	return nil
+}
+
+func GetPoolAddresses(pm *PoolManager) string {
+	var addresses []string
+	for _, pool := range pm.Pools { // Iterate over the Pools collection
+		addresses = append(addresses, pool.Address) // Collect each address
+	}
+	return strings.Join(addresses, ", ") // Join addresses into a single string
 }
