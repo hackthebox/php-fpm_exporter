@@ -40,10 +40,6 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 	if err != nil {
 		return err
 	}
-	err = getExistingPods(clientset, pm, namespace)
-	if err != nil {
-		return fmt.Errorf("failed to list existing pods: %v", err)
-	}
 
 	// Watch for changes in the pods
 	podWatch, err := clientset.CoreV1().Pods(namespace).Watch(context.TODO(), metav1.ListOptions{
@@ -63,7 +59,6 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 			}
 
 			log.Debugf("Received event for pod: %s, type: %s", pod.Name, event.Type)
-			log.Debugf("Namespace watching: %s", namespace)
 			switch event.Type {
 			case "ADDED":
 				go func(p *v1.Pod) {
@@ -78,10 +73,11 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 							uri := fmt.Sprintf("tcp://%s:8080/status", ip)
 							log.Debugf("Pod added: %s with IP %s", p.Name, ip)
 							pm.Add(uri)
+							log.Debugf("Pools: %s", GetPoolAddresses(pm))
 							return
 						}
 						log.Debugf("Pod %s is not in running state, current phase: %s. Retrying...", p.Name, p.Status.Phase)
-						time.Sleep(2 * time.Second)
+						time.Sleep(10 * time.Second)
 					}
 				}(pod)
 
@@ -105,34 +101,10 @@ func DiscoverPods(namespace string, pm *PoolManager) error {
 	return nil
 }
 
-func getExistingPods(clientset *kubernetes.Clientset, pm *PoolManager, namespace string) error {
-	pods, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=true", annotationKey),
-	})
-	if err != nil {
-		return err
-	}
-	log.Infof("Retrieved pods list in namespace %s..", namespace)
-
-	log.Infof("Pods list: %s", pods)
-
-	for _, pod := range pods.Items {
-		ip := pod.Status.PodIP
-		if ip != "" {
-			uri := fmt.Sprintf("tcp://%s:8080/status", ip)
-			log.Infof("Adding existing pod: %s with IP %s", pod.Name, ip)
-			pm.Add(uri)
-		} else {
-			log.Debugf("Pod %s has no assigned IP yet, skipping...", pod.Name)
-		}
-	}
-	return nil
-}
-
 func GetPoolAddresses(pm *PoolManager) string {
 	var addresses []string
-	for _, pool := range pm.Pools { // Iterate over the Pools collection
-		addresses = append(addresses, pool.Address) // Collect each address
+	for _, pool := range pm.Pools {
+		addresses = append(addresses, pool.Address)
 	}
-	return strings.Join(addresses, ", ") // Join addresses into a single string
+	return strings.Join(addresses, ", ")
 }

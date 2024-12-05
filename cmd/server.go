@@ -29,12 +29,13 @@ import (
 
 // Configuration variables
 var (
-	listeningAddress string
-	metricsEndpoint  string
-	scrapeURIs       []string
-	fixProcessCount  bool
-	k8sAutoTracking  bool
-	namespace        string
+	listeningAddress                string
+	metricsEndpoint                 string
+	scrapeURIs                      []string
+	fixProcessCount                 bool
+	k8sAutoTracking                 bool
+	namespace                       string
+	waitForPodsAutodiscoverySeconds = 5
 )
 
 // serverCmd represents the server command
@@ -50,27 +51,39 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
-		log.Info("Version 2.0")
 		pm := phpfpm.PoolManager{}
 		// Enable dynamic pod tracking if the flag is set
 		if k8sAutoTracking {
 			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
-
 			if namespace == "" {
 				log.Info("Kubernetes namespace not set; setting to default.")
 				namespace = "default" // fallback to 'default' if not set
 			}
+
+			wait := time.Second * time.Duration(waitForPodsAutodiscoverySeconds)
+			ctx, cancel := context.WithTimeout(context.Background(), wait)
+			defer cancel()
+
+			done := make(chan struct{})
 			go func() {
 				if err := phpfpm.DiscoverPods(namespace, &pm); err != nil {
 					log.Error(err)
 				}
+				close(done)
 			}()
+
+			select {
+			case <-done:
+				log.Info("Kubernetes pod discovery completed.")
+			case <-ctx.Done():
+				log.Warn("Timeout reached while waiting for Kubernetes pod discovery.")
+			}
+
 		} else {
 			for _, uri := range scrapeURIs {
 				pm.Add(uri)
 			}
 		}
-		log.Debugf("Pools: %s", phpfpm.GetPoolAddresses(&pm))
 
 		exporter := phpfpm.NewExporter(pm)
 
