@@ -32,7 +32,7 @@ func k8sGetClient() (*kubernetes.Clientset, error) {
 }
 
 // DiscoverPods finds pods with the specified annotation in the given namespace.
-func DiscoverPods(namespace string, pm *PoolManager, port string) error {
+func (pm *PoolManager) DiscoverPods(namespace string, port string) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
 	if err != nil {

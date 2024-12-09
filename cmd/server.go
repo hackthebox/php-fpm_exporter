@@ -62,7 +62,7 @@ to quickly create a Cobra application.`,
 
 			done := make(chan struct{})
 			go func() {
-				if err := phpfpm.DiscoverPods(namespace, &pm, servicePort); err != nil {
+				if err := pm.DiscoverPods(namespace, servicePort); err != nil {
 					log.Error(err)
 				}
 			}()
