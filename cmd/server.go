@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Configuration variables
@@ -55,10 +56,6 @@ to quickly create a Cobra application.`,
 		// Enable dynamic pod tracking if the flag is set
 		if k8sAutoTracking {
 			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
-			if namespace == "" {
-				log.Info("Kubernetes namespace not set; setting to default.")
-				namespace = "default" // fallback to 'default' if not set
-			}
 
 			done := make(chan struct{})
 			go func() {
@@ -149,7 +146,7 @@ func init() {
 	RootCmd.AddCommand(serverCmd)
 
 	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s-autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
-	serverCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace to monitor (defaults to 'default')")
+	serverCmd.Flags().StringVarP(&namespace, "namespace", "n", metav1.NamespaceAll, "Kubernetes namespace to monitor (defaults to all if not set)")
 	serverCmd.Flags().StringVar(&servicePort, "port", "9000", "The port on which the PHP service is exposed.")
 
 	serverCmd.Flags().StringVar(&listeningAddress, "web.listen-address", ":9253", "Address on which to expose metrics and web interface.")
