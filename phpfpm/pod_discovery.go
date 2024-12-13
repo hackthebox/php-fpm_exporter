@@ -10,6 +10,8 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+const uriTemplate string = "tcp://%s:9000/status"
+
 // k8sGetClient returns a Kubernetes clientset to interact with the cluster.
 // This is intended to be used when the application is running inside a Kubernetes pod.
 func k8sGetClient() (*kubernetes.Clientset, error) {
@@ -35,6 +37,9 @@ func (pm *PoolManager) DiscoverPods(namespace string, podLabels string, exporter
 		return err
 	}
 
+	if namespace == "" {
+		namespace = metav1.NamespaceAll
+	}
 	// Watch for changes in the pods
 	podWatch, err := clientset.CoreV1().Pods(namespace).Watch(context.TODO(), metav1.ListOptions{
 		LabelSelector: podLabels,
@@ -68,7 +73,7 @@ func (pm *PoolManager) DiscoverPods(namespace string, podLabels string, exporter
 				if currentPhase == v1.PodRunning {
 					ip := pod.Status.PodIP
 					if ip != "" {
-						uri := fmt.Sprintf("tcp://%s:9000/status", ip)
+						uri := fmt.Sprintf(uriTemplate, ip)
 						log.Infof("New pod %s added and already Running with IP %s", podName, ip)
 						pm.Add(uri)
 						exporter.UpdatePoolManager(*pm)
@@ -85,7 +90,7 @@ func (pm *PoolManager) DiscoverPods(namespace string, podLabels string, exporter
 
 					ip := pod.Status.PodIP
 					if ip != "" {
-						uri := fmt.Sprintf("tcp://%s:9000/status", ip)
+						uri := fmt.Sprintf(uriTemplate, ip)
 						log.Infof("Adding Running pod %s with IP %s", podName, ip)
 						pm.Add(uri)
 						exporter.UpdatePoolManager(*pm)
@@ -100,10 +105,9 @@ func (pm *PoolManager) DiscoverPods(namespace string, podLabels string, exporter
 
 				ip := pod.Status.PodIP
 				if ip != "" {
-					uri := fmt.Sprintf("tcp://%s:9000/status", ip)
+					uri := fmt.Sprintf(uriTemplate, ip)
 					log.Infof("Removing pod %s with IP %s from PoolManager", podName, ip)
-					pm.Remove(uri)
-					exporter.UpdatePoolManager(*pm)
+					pm.Remove(uri, exporter)
 				}
 			}
 		}

@@ -148,7 +148,7 @@ func (pm *PoolManager) Update() (err error) {
 }
 
 // Remove will remove a pool from the pool manager based on the given URI.
-func (pm *PoolManager) Remove(uri string) {
+func (pm *PoolManager) Remove(uri string, exporter *Exporter) {
 	wg := &sync.WaitGroup{}
 
 	started := time.Now()
@@ -170,6 +170,7 @@ func (pm *PoolManager) Remove(uri string) {
 
 	ended := time.Now()
 	log.Debugf("Removed pools in %v", ended.Sub(started))
+	exporter.UpdatePoolManager(*pm)
 }
 
 // Update will connect to PHP-FPM and retrieve the latest data for the pool.
@@ -209,8 +210,6 @@ func (p *Pool) Update() (err error) {
 	}
 
 	content = JSONResponseFixer(content)
-
-	log.Debugf("Pool[%v]: %v", p.Address, string(content))
 
 	if err = json.Unmarshal(content, &p); err != nil {
 		log.Errorf("Pool[%v]: %v", p.Address, string(content))
