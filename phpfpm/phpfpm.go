@@ -150,6 +150,7 @@ func (pm *PoolManager) Update() (err error) {
 // Remove will remove a pool from the pool manager based on the given URI.
 func (pm *PoolManager) Remove(uri string) {
 	wg := &sync.WaitGroup{}
+
 	started := time.Now()
 
 	for idx := range pm.Pools {

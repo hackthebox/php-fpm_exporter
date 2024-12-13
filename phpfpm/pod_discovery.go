@@ -10,10 +10,6 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-const (
-	labelKey = "php-fpm-exporter/collect"
-)
-
 // k8sGetClient returns a Kubernetes clientset to interact with the cluster.
 // This is intended to be used when the application is running inside a Kubernetes pod.
 func k8sGetClient() (*kubernetes.Clientset, error) {
@@ -32,7 +28,7 @@ func k8sGetClient() (*kubernetes.Clientset, error) {
 }
 
 // DiscoverPods finds pods with the specified annotation in the given namespace.
-func (pm *PoolManager) DiscoverPods(namespace string, port string) error {
+func (pm *PoolManager) DiscoverPods(namespace string, podLabels string, exporter *Exporter) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
 	if err != nil {
@@ -41,15 +37,14 @@ func (pm *PoolManager) DiscoverPods(namespace string, port string) error {
 
 	// Watch for changes in the pods
 	podWatch, err := clientset.CoreV1().Pods(namespace).Watch(context.TODO(), metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=true", labelKey),
+		LabelSelector: podLabels,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize watch session: %s", err)
 	}
 
 	var (
-		podPhases   = make(map[string]v1.PodPhase)
-		uriTemplate = fmt.Sprintf("tcp://%%s:%s/status", port)
+		podPhases = make(map[string]v1.PodPhase)
 	)
 	// Watch for pod events
 	go func() {
@@ -73,9 +68,10 @@ func (pm *PoolManager) DiscoverPods(namespace string, port string) error {
 				if currentPhase == v1.PodRunning {
 					ip := pod.Status.PodIP
 					if ip != "" {
-						uri := fmt.Sprintf(uriTemplate, ip)
+						uri := fmt.Sprintf("tcp://%s:9000/status", ip)
 						log.Infof("New pod %s added and already Running with IP %s", podName, ip)
 						pm.Add(uri)
+						exporter.UpdatePoolManager(*pm)
 					} else {
 						log.Debugf("Pod %s added but has no IP yet", podName)
 					}
@@ -89,9 +85,10 @@ func (pm *PoolManager) DiscoverPods(namespace string, port string) error {
 
 					ip := pod.Status.PodIP
 					if ip != "" {
-						uri := fmt.Sprintf(uriTemplate, ip)
+						uri := fmt.Sprintf("tcp://%s:9000/status", ip)
 						log.Infof("Adding Running pod %s with IP %s", podName, ip)
 						pm.Add(uri)
+						exporter.UpdatePoolManager(*pm)
 					} else {
 						log.Debugf("Pod %s is Running but has no IP assigned", podName)
 					}
@@ -103,9 +100,10 @@ func (pm *PoolManager) DiscoverPods(namespace string, port string) error {
 
 				ip := pod.Status.PodIP
 				if ip != "" {
-					uri := fmt.Sprintf(uriTemplate, ip)
+					uri := fmt.Sprintf("tcp://%s:9000/status", ip)
 					log.Infof("Removing pod %s with IP %s from PoolManager", podName, ip)
 					pm.Remove(uri)
+					exporter.UpdatePoolManager(*pm)
 				}
 			}
 		}
