@@ -36,6 +36,7 @@ var (
 	k8sAutoTracking  bool
 	namespace        string
 	podLabels        string
+	port             string
 )
 
 // serverCmd represents the server command
@@ -60,7 +61,7 @@ to quickly create a Cobra application.`,
 			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
 
 			go func() {
-				if err := pm.DiscoverPods(namespace, podLabels, exporter); err != nil {
+				if err := pm.DiscoverPods(namespace, podLabels, port, exporter); err != nil {
 					log.Error(err)
 				}
 			}()
@@ -150,6 +151,7 @@ func init() {
 	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s.autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
 	serverCmd.Flags().StringVarP(&namespace, "k8s.namespace", "n", "", "Kubernetes namespace to monitor (defaults to all namespaces if not set)")
 	serverCmd.Flags().StringVarP(&podLabels, "k8s.pod-labels", "l", "php-fpm-exporter/collect=true", "Kubernetes pod labels as a list of key-value pairs")
+	serverCmd.Flags().StringVarP(&port, "k8s.port", "p", "9000", "Kubernetes pod port")
 
 	// Workaround since vipers BindEnv is currently not working as expected (see https://github.com/spf13/viper/issues/461)
 
@@ -161,6 +163,7 @@ func init() {
 		"PHP_FPM_K8S_AUTOTRACKING":   "k8s.autotracking",
 		"PHP_FPM_K8S_NAMESPACE":      "k8s.namespace",
 		"PHP_FPM_K8S_POD_LABELS":     "k8s.pod-labels",
+		"PHP_FPM_K8S_POD_PORT":       "k8s.port",
 	}
 
 	mapEnvVars(envs, serverCmd)
