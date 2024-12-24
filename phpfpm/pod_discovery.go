@@ -15,13 +15,16 @@ import (
 
 const uriTemplate string = "tcp://%s:%s/status"
 
+// customWatcher is a custom implementation of the cache.Watcher interface,
+// designed to watch Kubernetes pods based on specific label selectors and namespace.
 type customWatcher struct {
 	clientset     *kubernetes.Clientset
 	labelSelector string
 	namespace     string
 }
 
-// newWatcher creates a new instance of customWatcher.
+// newWatcher creates and returns a new instance of customWatcher.
+// It is used to initialize the watcher with a Kubernetes clientset, a namespace, and a label selector for filtering the pods to be monitored.
 func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels string) cache.Watcher {
 	return &customWatcher{
 		clientset:     clientset,
@@ -30,7 +33,11 @@ func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels str
 	}
 }
 
-// Watch starts a new watch session for Pods
+// Watch initiates a new watch session for Pods by establishing a connection to the Kubernetes API.
+// This function is used as part of the NewRetryWatcher setup, which ensures a resilient connection.
+// If the connection to the API is interrupted, the NewRetryWatcher will automatically attempt to re-establish it,
+// providing continuous monitoring of pod events. This approach is ideal for maintaining reliable event streaming,
+// especially in cases of network instability or API server disruptions.
 func (c *customWatcher) Watch(options metav1.ListOptions) (apiWatch.Interface, error) {
 	options.LabelSelector = c.labelSelector
 	ns := c.namespace
@@ -57,7 +64,7 @@ func k8sGetClient() (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
-// listPods returns the initial list of pods
+// listPods retrieves the initial list of pods that match the specified label criteria and namespace.
 func listPods(clientset *kubernetes.Clientset, namespace string, podLabels string) (*v1.PodList, error) {
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
@@ -69,10 +76,12 @@ func listPods(clientset *kubernetes.Clientset, namespace string, podLabels strin
 	return podList, nil
 }
 
-// initializePodEnlisting lists all Pods that match the criteria and initializes their state in PoolManager.
+// initializePodEnlisting retrieves all pods matching the specified criteria and appends their URIs to the PoolManager's PodPhases.
+// This function is invoked prior to starting the NewRetryWatcher to capture the initial state of existing pods
+// and to obtain the ResourceVersion required for initializing the NewRetryWatcher.
 func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodList, port string) (string, error) {
 
-	log.Infof("Found %d pods during initial list", len(podList.Items))
+	log.Infof("Found %d pod(s) during initial list", len(podList.Items))
 	for _, pod := range podList.Items {
 		podName := pod.Name
 		currentPhase := pod.Status.Phase
@@ -84,20 +93,20 @@ func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodLi
 	return podList.ResourceVersion, nil
 }
 
-// handlePodRunning handles actions for a pod that is in the Running phase.
+// handlePodRunning is used when a pod is in the Running phase and needs to be appended into the pool manager's PodPhases.
 func (pm *PoolManager) handlePodRunning(exporter *Exporter, pod *v1.Pod, uri string) {
 	ip := pod.Status.PodIP
 	podName := pod.Name
 	if ip != "" {
-		log.Infof("Handling Running pod %s with IP %s", podName, ip)
+		log.Infof("New running pod detected %s with IP %s", podName, ip)
 		pm.Add(uri)
 		exporter.UpdatePoolManager(*pm)
 	} else {
-		log.Debugf("Pod %s is Running but has no IP assigned", podName)
+		log.Debugf("Pod %s is in Running state but has no IP assigned", podName)
 	}
 }
 
-// podAdded processes a newly added pod.
+// processPodAdded handles the addition of a newly created pod to the cluster by appending its URI to the pool manager.
 func (pm *PoolManager) processPodAdded(exporter *Exporter, pod *v1.Pod, uri string) {
 	pm.PodPhases[pod.Name] = pod.Status.Phase
 
@@ -106,7 +115,9 @@ func (pm *PoolManager) processPodAdded(exporter *Exporter, pod *v1.Pod, uri stri
 	}
 }
 
-// podModified processes modifications to an existing pod.
+// processPodModified handles events triggered by pod modifications, including when a new pod is added to the cluster.
+// To be included in the pool manager, the pod must be in the "Running" phase. The function checks the pod's current phase
+// and, if it is running, calls handlePodRunning to append the pod to the pool manager's PodPhases.
 func (pm *PoolManager) processPodModified(exporter *Exporter, pod *v1.Pod, uri string) {
 	lastPhase, exists := pm.PodPhases[pod.Name]
 
@@ -117,7 +128,7 @@ func (pm *PoolManager) processPodModified(exporter *Exporter, pod *v1.Pod, uri s
 	pm.PodPhases[pod.Name] = pod.Status.Phase
 }
 
-// podDeleted processes the deletion of a pod.
+// processPodDeleted handles the removal of a pods URI from the pool manager's PodPhases.
 func (pm *PoolManager) processPodDeleted(exporter *Exporter, pod *v1.Pod, uri string) {
 	ip := pod.Status.PodIP
 
@@ -127,7 +138,9 @@ func (pm *PoolManager) processPodDeleted(exporter *Exporter, pod *v1.Pod, uri st
 	delete(pm.PodPhases, pod.Name)
 }
 
-// DiscoverPods finds pods with the specified annotation in the given namespace.
+// DiscoverPods begins by listing the pods that match the specified labels within the given namespace.
+// It then starts a watch session in a separate goroutine.
+// The list operation is performed first to retrieve the initial ResourceVersion, which is required to initialize a NewRetryWatcher.
 func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLabels string, port string) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
@@ -147,15 +160,19 @@ func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLab
 	return nil
 }
 
-// watchPodEvents watches for pod events and processes them.
+// watchPodEvents monitors pod events and processes them accordingly:
+// - For "added" events, the new pod's URI is appended to the pool manager.
+// - For "modified" events, it verifies if the pod is in the running state before appending its URI to the pool manager.
+// - For "deleted" events, the pod's URI is removed from the pool manager's PodPhases.
+// Note: There is an unresolved issue with timeout errors when a pod is deleted, which requires further investigation and handling.
 func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher, resourceVersion string, port string) {
 	retryWatcher, err := watch.NewRetryWatcher(resourceVersion, watcher)
 	if err != nil {
-		log.Errorf("Failed to create RetryWatcher: %v", err)
+		log.Errorf("Failed to create Retry Watcher: %v", err)
 		return
 	}
 	defer retryWatcher.Stop()
-	log.Info("RetryWatcher initialized successfully")
+	log.Info("Retry Watcher initialized successfully")
 
 	for event := range retryWatcher.ResultChan() {
 		pod, ok := event.Object.(*v1.Pod)
