@@ -98,7 +98,7 @@ func (pm *PoolManager) handlePodRunning(exporter *Exporter, pod *v1.Pod, uri str
 	ip := pod.Status.PodIP
 	podName := pod.Name
 	if ip != "" {
-		log.Infof("New running pod detected %s with IP %s", podName, ip)
+		log.Infof("Pod in Running state detected %s with IP %s. Adding in the Pool Manager..", podName, ip)
 		pm.Add(uri)
 		exporter.UpdatePoolManager(*pm)
 	} else {
@@ -119,13 +119,15 @@ func (pm *PoolManager) processPodAdded(exporter *Exporter, pod *v1.Pod, uri stri
 // To be included in the pool manager, the pod must be in the "Running" phase. The function checks the pod's current phase
 // and, if it is running, calls handlePodRunning to append the pod to the pool manager's PodPhases.
 func (pm *PoolManager) processPodModified(exporter *Exporter, pod *v1.Pod, uri string) {
-	lastPhase, exists := pm.PodPhases[pod.Name]
+	podName := pod.Name
+	currentPhase := pod.Status.Phase
+	lastPhase, exists := pm.PodPhases[podName]
 
-	if exists && lastPhase == v1.PodPending && pod.Status.Phase == v1.PodRunning {
-		log.Infof("Pod %s transitioned from Pending to Running", pod.Name)
+	if exists && lastPhase == v1.PodPending && currentPhase == v1.PodRunning {
+		log.Infof("Pod %s transitioned from Pending to Running", podName)
 		pm.handlePodRunning(exporter, pod, uri)
 	}
-	pm.PodPhases[pod.Name] = pod.Status.Phase
+	pm.PodPhases[podName] = currentPhase
 }
 
 // processPodDeleted handles the removal of a pods URI from the pool manager's PodPhases.
