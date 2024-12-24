@@ -26,6 +26,7 @@ import (
 	"time"
 
 	fcgiclient "github.com/tomasen/fcgi_client"
+	v1 "k8s.io/api/core/v1"
 )
 
 // PoolProcessRequestIdle defines a process that is idle.
@@ -60,7 +61,8 @@ type logger interface {
 
 // PoolManager manages all configured Pools
 type PoolManager struct {
-	Pools []Pool `json:"pools"`
+	Pools     []Pool                 `json:"pools"`
+	PodPhases map[string]v1.PodPhase `json:"podPhases"`
 }
 
 // Pool describes a single PHP-FPM pool that can be reached via a Socket or TCP address
@@ -148,7 +150,7 @@ func (pm *PoolManager) Update() (err error) {
 }
 
 // Remove will remove a pool from the pool manager based on the given URI.
-func (pm *PoolManager) Remove(uri string, exporter *Exporter) {
+func (pm *PoolManager) Remove(exporter *Exporter, uri string) {
 	wg := &sync.WaitGroup{}
 
 	started := time.Now()

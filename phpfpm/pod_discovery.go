@@ -13,12 +13,31 @@ import (
 	"k8s.io/client-go/tools/watch"
 )
 
-const uriTemplate string = "tcp://%%s:%s/status"
+const uriTemplate string = "tcp://%s:%s/status"
 
 type customWatcher struct {
 	clientset     *kubernetes.Clientset
 	labelSelector string
 	namespace     string
+}
+
+// newWatcher creates a new instance of customWatcher.
+func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels string) cache.Watcher {
+	return &customWatcher{
+		clientset:     clientset,
+		namespace:     namespace,
+		labelSelector: podLabels,
+	}
+}
+
+// Watch starts a new watch session for Pods
+func (c *customWatcher) Watch(options metav1.ListOptions) (apiWatch.Interface, error) {
+	options.LabelSelector = c.labelSelector
+	ns := c.namespace
+	if ns == "" {
+		ns = metav1.NamespaceAll
+	}
+	return c.clientset.CoreV1().Pods(c.namespace).Watch(context.TODO(), options)
 }
 
 // k8sGetClient returns a Kubernetes clientset to interact with the cluster.
@@ -38,115 +57,123 @@ func k8sGetClient() (*kubernetes.Clientset, error) {
 	return clientset, nil
 }
 
-// Watch starts a new watch session for Pods
-func (c *customWatcher) Watch(options metav1.ListOptions) (apiWatch.Interface, error) {
-	if c.namespace == "" {
-		c.namespace = metav1.NamespaceAll
+// listPods returns the initial list of pods
+func listPods(clientset *kubernetes.Clientset, namespace string, podLabels string) (*v1.PodList, error) {
+	if namespace == "" {
+		namespace = metav1.NamespaceAll
 	}
-	options.LabelSelector = c.labelSelector
-	return c.clientset.CoreV1().Pods(c.namespace).Watch(context.TODO(), options)
+	podList, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: podLabels})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+	return podList, nil
 }
 
-func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels string) cache.Watcher {
-	return &customWatcher{clientset: clientset, namespace: namespace, labelSelector: podLabels}
+// initializePodEnlisting lists all Pods that match the criteria and initializes their state in PoolManager.
+func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodList, port string) (string, error) {
+
+	log.Infof("Found %d pods during initial list", len(podList.Items))
+	for _, pod := range podList.Items {
+		podName := pod.Name
+		currentPhase := pod.Status.Phase
+		log.Debugf("Processing pod from initial list: %s, phase: %s", podName, currentPhase)
+
+		uri := fmt.Sprintf(uriTemplate, pod.Status.PodIP, port)
+		pm.processPodAdded(exporter, &pod, uri)
+	}
+	return podList.ResourceVersion, nil
+}
+
+// handlePodRunning handles actions for a pod that is in the Running phase.
+func (pm *PoolManager) handlePodRunning(exporter *Exporter, pod *v1.Pod, uri string) {
+	ip := pod.Status.PodIP
+	podName := pod.Name
+	if ip != "" {
+		log.Infof("Handling Running pod %s with IP %s", podName, ip)
+		pm.Add(uri)
+		exporter.UpdatePoolManager(*pm)
+	} else {
+		log.Debugf("Pod %s is Running but has no IP assigned", podName)
+	}
+}
+
+// podAdded processes a newly added pod.
+func (pm *PoolManager) processPodAdded(exporter *Exporter, pod *v1.Pod, uri string) {
+	pm.PodPhases[pod.Name] = pod.Status.Phase
+
+	if pod.Status.Phase == v1.PodRunning {
+		pm.handlePodRunning(exporter, pod, uri)
+	}
+}
+
+// podModified processes modifications to an existing pod.
+func (pm *PoolManager) processPodModified(exporter *Exporter, pod *v1.Pod, uri string) {
+	lastPhase, exists := pm.PodPhases[pod.Name]
+
+	if exists && lastPhase == v1.PodPending && pod.Status.Phase == v1.PodRunning {
+		log.Infof("Pod %s transitioned from Pending to Running", pod.Name)
+		pm.handlePodRunning(exporter, pod, uri)
+	}
+	pm.PodPhases[pod.Name] = pod.Status.Phase
+}
+
+// podDeleted processes the deletion of a pod.
+func (pm *PoolManager) processPodDeleted(exporter *Exporter, pod *v1.Pod, uri string) {
+	ip := pod.Status.PodIP
+
+	log.Infof("Removing pod %s with IP %s from PoolManager", pod.Name, ip)
+	pm.Remove(exporter, uri)
+
+	delete(pm.PodPhases, pod.Name)
 }
 
 // DiscoverPods finds pods with the specified annotation in the given namespace.
-func (pm *PoolManager) DiscoverPods(namespace string, podLabels string, port string, exporter *Exporter) error {
+func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLabels string, port string) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
 	if err != nil {
 		return err
 	}
 
-	log.Info("Test 1.9.17")
-
-	var podPhases = make(map[string]v1.PodPhase)
-
 	watcher := newWatcher(clientset, namespace, podLabels)
 
-	// Watch for pod events
-	go func() {
-		retryWatcher, err := watch.NewRetryWatcher("1", watcher)
-		if err != nil {
-			log.Errorf("Failed to create RetryWatcher: %v", err)
-		}
-		defer retryWatcher.Stop()
-		log.Info("RetryWatcher successfully initialized")
+	podList, err := listPods(clientset, namespace, podLabels)
+	initialResourceVersion, err := pm.initialPodEnlisting(exporter, podList, port)
+	if err != nil {
+		return err
+	}
 
-		uriTemplate := fmt.Sprintf(uriTemplate, port)
-
-		for event := range retryWatcher.ResultChan() {
-			pod, ok := event.Object.(*v1.Pod)
-			if !ok {
-				log.Errorf("Unexpected type in podWatch: %v", event.Object)
-				continue
-			}
-			log.Debug("I am inside the go routine")
-
-			podName := pod.Name
-			currentPhase := pod.Status.Phase
-
-			log.Debugf("Received event for pod: %s, type: %s, current phase: %s", podName, event.Type, currentPhase)
-
-			switch event.Type {
-			case apiWatch.Added:
-				// Initialize the pod's phase in the map
-				pm.podAdded(podPhases, podName, currentPhase, pod, exporter, uriTemplate)
-				fmt.Printf("Added %s", podPhases)
-			case apiWatch.Modified:
-				// Check for the Pending → Running transition
-				pm.podModified(podPhases, podName, currentPhase, pod, exporter, uriTemplate)
-				fmt.Printf("Modified %s", podPhases)
-			case apiWatch.Deleted:
-				pm.podDeleted(podPhases, podName, pod, exporter, uriTemplate)
-				fmt.Printf("Deleted %s", podPhases)
-			}
-		}
-	}()
+	go pm.watchPodEvents(exporter, watcher, initialResourceVersion, port)
 	return nil
 }
 
-func (pm *PoolManager) podModified(podPhases map[string]v1.PodPhase, podName string, currentPhase v1.PodPhase, pod *v1.Pod, exporter *Exporter, uriTemplate string) {
-	lastPhase, exists := podPhases[podName]
-	if exists && lastPhase == v1.PodPending && currentPhase == v1.PodRunning {
-		log.Infof("Pod %s transitioned from Pending to Running", podName)
+// watchPodEvents watches for pod events and processes them.
+func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher, resourceVersion string, port string) {
+	retryWatcher, err := watch.NewRetryWatcher(resourceVersion, watcher)
+	if err != nil {
+		log.Errorf("Failed to create RetryWatcher: %v", err)
+		return
+	}
+	defer retryWatcher.Stop()
+	log.Info("RetryWatcher initialized successfully")
 
-		ip := pod.Status.PodIP
-		if ip != "" {
-			uri := fmt.Sprintf(uriTemplate, ip)
-			log.Infof("Adding Running pod %s with IP %s", podName, ip)
-			pm.Add(uri)
-			exporter.UpdatePoolManager(*pm)
-		} else {
-			log.Debugf("Pod %s is Running but has no IP assigned", podName)
+	for event := range retryWatcher.ResultChan() {
+		pod, ok := event.Object.(*v1.Pod)
+		if !ok {
+			log.Errorf("Unexpected type in pod event: %v", event.Object)
+			continue
+		}
+
+		uri := fmt.Sprintf(uriTemplate, pod.Status.PodIP, port)
+		log.Debugf("Received event for pod %s: type=%s, phase=%s", pod.Name, event.Type, pod.Status.Phase)
+
+		switch event.Type {
+		case apiWatch.Added:
+			pm.processPodAdded(exporter, pod, uri)
+		case apiWatch.Modified:
+			pm.processPodModified(exporter, pod, uri)
+		case apiWatch.Deleted:
+			pm.processPodDeleted(exporter, pod, uri)
 		}
 	}
-	podPhases[podName] = currentPhase
-}
-
-func (pm *PoolManager) podAdded(podPhases map[string]v1.PodPhase, podName string, currentPhase v1.PodPhase, pod *v1.Pod, exporter *Exporter, uriTemplate string) {
-	podPhases[podName] = currentPhase
-
-	if currentPhase == v1.PodRunning {
-		ip := pod.Status.PodIP
-		if ip != "" {
-			uri := fmt.Sprintf(uriTemplate, ip)
-			log.Infof("New pod %s added and already Running with IP %s", podName, ip)
-			pm.Add(uri)
-			exporter.UpdatePoolManager(*pm)
-		} else {
-			log.Debugf("Pod %s added but has no IP yet", podName)
-		}
-	}
-}
-
-func (pm *PoolManager) podDeleted(podPhases map[string]v1.PodPhase, podName string, pod *v1.Pod, exporter *Exporter, uriTemplate string) {
-	ip := pod.Status.PodIP
-	if ip != "" {
-		uri := fmt.Sprintf(uriTemplate, ip)
-		log.Infof("Removing pod %s with IP %s from PoolManager", podName, ip)
-		pm.Remove(uri, exporter)
-	}
-	delete(podPhases, podName)
 }

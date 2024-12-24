@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/api/core/v1"
 )
 
 // Configuration variables
@@ -52,7 +53,9 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
-		pm := phpfpm.PoolManager{}
+		pm := phpfpm.PoolManager{
+			PodPhases: make(map[string]v1.PodPhase),
+		}
 		// Initialize the Exporter before any dynamic or static setup
 		exporter := phpfpm.NewExporter(pm)
 
@@ -61,7 +64,7 @@ to quickly create a Cobra application.`,
 			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
 
 			go func() {
-				if err := pm.DiscoverPods(namespace, podLabels, port, exporter); err != nil {
+				if err := pm.DiscoverPods(exporter, namespace, podLabels, port); err != nil {
 					log.Error(err)
 				}
 			}()
