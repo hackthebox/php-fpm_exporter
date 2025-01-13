@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
+	v1 "k8s.io/api/core/v1"
 )
 
 // Configuration variables
@@ -33,6 +34,10 @@ var (
 	metricsEndpoint  string
 	scrapeURIs       []string
 	fixProcessCount  bool
+	k8sAutoTracking  bool
+	namespace        string
+	podLabels        string
+	port             string
 )
 
 // serverCmd represents the server command
@@ -48,13 +53,29 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
-		pm := phpfpm.PoolManager{}
-
-		for _, uri := range scrapeURIs {
-			pm.Add(uri)
+		pm := phpfpm.PoolManager{
+			PodPhases: make(map[string]v1.PodPhase),
 		}
-
+		// Initialize the Exporter before any dynamic or static setup
 		exporter := phpfpm.NewExporter(pm)
+
+		// Enable dynamic pod tracking if the flag is set
+		if k8sAutoTracking {
+			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
+
+			go func() {
+				if err := pm.DiscoverPods(exporter, namespace, podLabels, port); err != nil {
+					log.Error(err)
+				}
+			}()
+
+		} else {
+			// Static scraping of predefined URIs
+			for _, uri := range scrapeURIs {
+				pm.Add(uri)
+			}
+			exporter.UpdatePoolManager(pm)
+		}
 
 		if fixProcessCount {
 			log.Info("Idle/Active/Total Processes will be calculated by php-fpm_exporter.")
@@ -121,10 +142,19 @@ to quickly create a Cobra application.`,
 func init() {
 	RootCmd.AddCommand(serverCmd)
 
+	// Web
 	serverCmd.Flags().StringVar(&listeningAddress, "web.listen-address", ":9253", "Address on which to expose metrics and web interface.")
 	serverCmd.Flags().StringVar(&metricsEndpoint, "web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+
+	// PHP FPM
 	serverCmd.Flags().StringSliceVar(&scrapeURIs, "phpfpm.scrape-uri", []string{"tcp://127.0.0.1:9000/status"}, "FastCGI address, e.g. unix:///tmp/php.sock;/status or tcp://127.0.0.1:9000/status")
 	serverCmd.Flags().BoolVar(&fixProcessCount, "phpfpm.fix-process-count", false, "Enable to calculate process numbers via php-fpm_exporter since PHP-FPM sporadically reports wrong active/idle/total process numbers.")
+
+	// Kubernetes
+	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s.autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
+	serverCmd.Flags().StringVarP(&namespace, "k8s.namespace", "n", "", "Kubernetes namespace to monitor (defaults to all namespaces if not set)")
+	serverCmd.Flags().StringVarP(&podLabels, "k8s.pod-labels", "l", "php-fpm-exporter/collect=true", "Kubernetes pod labels as a list of key-value pairs")
+	serverCmd.Flags().StringVarP(&port, "k8s.port", "p", "9000", "Kubernetes pod port")
 
 	// Workaround since vipers BindEnv is currently not working as expected (see https://github.com/spf13/viper/issues/461)
 
@@ -133,6 +163,10 @@ func init() {
 		"PHP_FPM_WEB_TELEMETRY_PATH": "web.telemetry-path",
 		"PHP_FPM_SCRAPE_URI":         "phpfpm.scrape-uri",
 		"PHP_FPM_FIX_PROCESS_COUNT":  "phpfpm.fix-process-count",
+		"PHP_FPM_K8S_AUTOTRACKING":   "k8s.autotracking",
+		"PHP_FPM_K8S_NAMESPACE":      "k8s.namespace",
+		"PHP_FPM_K8S_POD_LABELS":     "k8s.pod-labels",
+		"PHP_FPM_K8S_POD_PORT":       "k8s.port",
 	}
 
 	mapEnvVars(envs, serverCmd)

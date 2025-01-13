@@ -26,6 +26,7 @@ import (
 	"time"
 
 	fcgiclient "github.com/tomasen/fcgi_client"
+	v1 "k8s.io/api/core/v1"
 )
 
 // PoolProcessRequestIdle defines a process that is idle.
@@ -60,7 +61,8 @@ type logger interface {
 
 // PoolManager manages all configured Pools
 type PoolManager struct {
-	Pools []Pool `json:"pools"`
+	Pools     []Pool                 `json:"pools"`
+	PodPhases map[string]v1.PodPhase `json:"podPhases"`
 }
 
 // Pool describes a single PHP-FPM pool that can be reached via a Socket or TCP address
@@ -147,6 +149,32 @@ func (pm *PoolManager) Update() (err error) {
 	return nil
 }
 
+// Remove will remove a pool from the pool manager based on the given URI.
+func (pm *PoolManager) Remove(exporter *Exporter, uri string) {
+	wg := &sync.WaitGroup{}
+
+	started := time.Now()
+
+	for idx := range pm.Pools {
+		if pm.Pools[idx].Address == uri {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+
+				// Remove the pool by updating the Pools slice
+				log.Debugf("Removing pool: %s", uri)
+				pm.Pools = append(pm.Pools[:i], pm.Pools[i+1:]...)
+			}(idx)
+		}
+	}
+
+	wg.Wait()
+
+	ended := time.Now()
+	log.Debugf("Removed pools in %v", ended.Sub(started))
+	exporter.UpdatePoolManager(*pm)
+}
+
 // Update will connect to PHP-FPM and retrieve the latest data for the pool.
 func (p *Pool) Update() (err error) {
 	p.ScrapeError = nil
@@ -184,8 +212,6 @@ func (p *Pool) Update() (err error) {
 	}
 
 	content = JSONResponseFixer(content)
-
-	log.Debugf("Pool[%v]: %v", p.Address, string(content))
 
 	if err = json.Unmarshal(content, &p); err != nil {
 		log.Errorf("Pool[%v]: %v", p.Address, string(content))

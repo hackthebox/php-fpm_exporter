@@ -255,3 +255,12 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.processLastRequestCPU
 	ch <- e.processRequestDuration
 }
+
+// UpdatePoolManager updates the Pool Manager
+func (e *Exporter) UpdatePoolManager(newPM PoolManager) {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	e.PoolManager = newPM
+	log.Info("PoolManager has been updated")
+}
