@@ -1,21 +1,24 @@
-FROM alpine:3.20.3
+ARG GO_VERSION=1.13 \
+    ALPINE_VERSION=3.20.3 \
+    GOOS=linux \
+    GOARCH=amd64
 
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION
+FROM golang:${GO_VERSION}-alpine AS builder
+
+COPY . /app
+
+WORKDIR /app
+
+RUN go mod tidy
+
+RUN go build -o php-fpm-exporter .
+
+FROM alpine:${ALPINE_VERSION}
 
 COPY php-fpm_exporter /
 
-EXPOSE     9253
-ENTRYPOINT [ "/php-fpm_exporter", "server" ]
+COPY --from=builder /app/php-fpm-exporter /
 
-LABEL org.label-schema.build-date=$BUILD_DATE \
-      org.label-schema.name="php-fpm_exporter" \
-      org.label-schema.description="A prometheus exporter for PHP-FPM." \
-      org.label-schema.url="https://hipages.com.au/" \
-      org.label-schema.vcs-ref=$VCS_REF \
-      org.label-schema.vcs-url="https://github.com/hipages/php-fpm_exporter" \
-      org.label-schema.vendor="hipages" \
-      org.label-schema.version=$VERSION \
-      org.label-schema.schema-version="1.0" \
-      org.label-schema.docker.cmd="docker run -it --rm -e PHP_FPM_SCRAPE_URI=\"tcp://127.0.0.1:9000/status\" hipages/php-fpm_exporter"
+EXPOSE 9253
+
+ENTRYPOINT [ "/php-fpm-exporter", "server" ]
