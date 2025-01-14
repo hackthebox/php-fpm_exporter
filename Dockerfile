@@ -1,5 +1,5 @@
 ARG GO_VERSION=1.13 \
-    ALPINE_VERSION=3.20.3 \
+    ALPINE_VERSION=3.21.2 \
     GOOS=linux \
     GOARCH=amd64
 
