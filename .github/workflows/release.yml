@@ -1,9 +1,6 @@
 name: Release
 on:
   workflow_dispatch:
-  # Release patches and secruity updates on a schedule
-  schedule:
-    - cron: "0 0 1 * *"
 
 jobs:
   tag:
@@ -11,22 +8,21 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     steps:
+      - name: Setup Node.js for use with actions
+        uses: actions/setup-node@v4
 
-    - name: Setup Node.js for use with actions
-      uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
+      - name: Install semantic-release
+        run: yarn global add --no-progress --non-interactive "semantic-release" "@semantic-release/exec"
 
-    - name: Install semantic-release
-      run: yarn global add --no-progress --non-interactive "semantic-release" "@semantic-release/exec"
-
-    - name: Run semantic-release
-      run: $(yarn global bin)/semantic-release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run semantic-release
+        run: $(yarn global bin)/semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     runs-on: ubuntu-latest
