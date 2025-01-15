@@ -1,6 +1,6 @@
 name: Auto-Merge
 on:
-  workflow_dispatch:
+  pull_request_target
 
 jobs:
   enable-auto-merge:
@@ -8,6 +8,6 @@ jobs:
 
     if: github.actor == 'dependabot[bot]' || github.actor == 'dependabot-preview[bot]'
     steps:
-      - uses: alexwilson/enable-github-automerge-action@main
-        with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
+    - uses: alexwilson/enable-github-automerge-action@main
+      with:
+        github-token: "${{ secrets.GITHUB_TOKEN }}"
