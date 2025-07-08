@@ -30,14 +30,16 @@ import (
 
 // Configuration variables
 var (
-	listeningAddress string
-	metricsEndpoint  string
-	scrapeURIs       []string
-	fixProcessCount  bool
-	k8sAutoTracking  bool
-	namespace        string
-	podLabels        string
-	port             string
+	listeningAddress   string
+	metricsEndpoint    string
+	scrapeURIs         []string
+	fixProcessCount    bool
+	k8sAutoTracking    bool
+	k8sHeadless        bool
+	k8sHeadlessService string
+	namespace          string
+	podLabels          string
+	port               string
 )
 
 // serverCmd represents the server command
@@ -64,7 +66,7 @@ to quickly create a Cobra application.`,
 			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
 
 			go func() {
-				if err := pm.DiscoverPods(exporter, namespace, podLabels, port); err != nil {
+				if err := pm.DiscoverPods(exporter, namespace, podLabels, port, k8sHeadless, k8sHeadlessService); err != nil {
 					log.Error(err)
 				}
 			}()
@@ -152,6 +154,8 @@ func init() {
 
 	// Kubernetes
 	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s.autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
+	serverCmd.Flags().BoolVar(&k8sHeadless, "k8s.headless", false, "Enable the use of headless service in the autodiscovery instead of pod IP.")
+	serverCmd.Flags().StringVar(&k8sHeadlessService, "k8s.headlessService", "", "The name of the headless service used in the autodiscovery.")
 	serverCmd.Flags().StringVarP(&namespace, "k8s.namespace", "n", "", "Kubernetes namespace to monitor (defaults to all namespaces if not set)")
 	serverCmd.Flags().StringVarP(&podLabels, "k8s.pod-labels", "l", "php-fpm-exporter/collect=true", "Kubernetes pod labels as a list of key-value pairs")
 	serverCmd.Flags().StringVarP(&port, "k8s.port", "p", "9000", "Kubernetes pod port")
@@ -159,14 +163,16 @@ func init() {
 	// Workaround since vipers BindEnv is currently not working as expected (see https://github.com/spf13/viper/issues/461)
 
 	envs := map[string]string{
-		"PHP_FPM_WEB_LISTEN_ADDRESS": "web.listen-address",
-		"PHP_FPM_WEB_TELEMETRY_PATH": "web.telemetry-path",
-		"PHP_FPM_SCRAPE_URI":         "phpfpm.scrape-uri",
-		"PHP_FPM_FIX_PROCESS_COUNT":  "phpfpm.fix-process-count",
-		"PHP_FPM_K8S_AUTOTRACKING":   "k8s.autotracking",
-		"PHP_FPM_K8S_NAMESPACE":      "k8s.namespace",
-		"PHP_FPM_K8S_POD_LABELS":     "k8s.pod-labels",
-		"PHP_FPM_K8S_POD_PORT":       "k8s.port",
+		"PHP_FPM_WEB_LISTEN_ADDRESS":   "web.listen-address",
+		"PHP_FPM_WEB_TELEMETRY_PATH":   "web.telemetry-path",
+		"PHP_FPM_SCRAPE_URI":           "phpfpm.scrape-uri",
+		"PHP_FPM_FIX_PROCESS_COUNT":    "phpfpm.fix-process-count",
+		"PHP_FPM_K8S_AUTOTRACKING":     "k8s.autotracking",
+		"PHP_FPM_K8S_HEADLESS":         "k8s.headless",
+		"PHP_FPM_K8S_HEADLESS_SERVICE": "k8s.headlessService",
+		"PHP_FPM_K8S_NAMESPACE":        "k8s.namespace",
+		"PHP_FPM_K8S_POD_LABELS":       "k8s.pod-labels",
+		"PHP_FPM_K8S_POD_PORT":         "k8s.port",
 	}
 
 	mapEnvVars(envs, serverCmd)

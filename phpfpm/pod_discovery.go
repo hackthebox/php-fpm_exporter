@@ -13,7 +13,9 @@ import (
 	"k8s.io/client-go/tools/watch"
 )
 
-const uriTemplate string = "tcp://%s:%s/status"
+const (
+	uriTemplate string = "tcp://%s:%s/status"
+)
 
 // customWatcher is a custom implementation of the cache.Watcher interface,
 // designed to watch Kubernetes pods based on specific label selectors and namespace.
@@ -79,7 +81,7 @@ func listPods(clientset *kubernetes.Clientset, namespace string, podLabels strin
 // initializePodEnlisting retrieves all pods matching the specified criteria and appends their URIs to the PoolManager's PodPhases.
 // This function is invoked prior to starting the NewRetryWatcher to capture the initial state of existing pods
 // and to obtain the ResourceVersion required for initializing the NewRetryWatcher.
-func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodList, port string) (string, error) {
+func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodList, port string, headless bool, headlessService string) (string, error) {
 
 	log.Infof("Found %d pod(s) during initial list", len(podList.Items))
 	for _, pod := range podList.Items {
@@ -87,7 +89,7 @@ func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodLi
 		currentPhase := pod.Status.Phase
 		log.Debugf("Processing pod from initial list: %s, phase: %s", podName, currentPhase)
 
-		uri := fmt.Sprintf(uriTemplate, pod.Status.PodIP, port)
+		uri := buildPodDNSURI(&pod, port, headless, headlessService)
 		pm.processPodAdded(exporter, &pod, uri)
 	}
 	return podList.ResourceVersion, nil
@@ -143,7 +145,7 @@ func (pm *PoolManager) processPodDeleted(exporter *Exporter, pod *v1.Pod, uri st
 // DiscoverPods begins by listing the pods that match the specified labels within the given namespace.
 // It then starts a watch session in a separate goroutine.
 // The list operation is performed first to retrieve the initial ResourceVersion, which is required to initialize a NewRetryWatcher.
-func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLabels string, port string) error {
+func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLabels string, port string, headless bool, headlessService string) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
 	if err != nil {
@@ -153,12 +155,12 @@ func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLab
 	watcher := newWatcher(clientset, namespace, podLabels)
 
 	podList, err := listPods(clientset, namespace, podLabels)
-	initialResourceVersion, err := pm.initialPodEnlisting(exporter, podList, port)
+	initialResourceVersion, err := pm.initialPodEnlisting(exporter, podList, port, headless, headlessService)
 	if err != nil {
 		return err
 	}
 
-	go pm.watchPodEvents(exporter, watcher, initialResourceVersion, port)
+	go pm.watchPodEvents(exporter, watcher, initialResourceVersion, port, headless, headlessService)
 	return nil
 }
 
@@ -167,7 +169,7 @@ func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLab
 // - For "modified" events, it verifies if the pod is in the running state before appending its URI to the pool manager.
 // - For "deleted" events, the pod's URI is removed from the pool manager's PodPhases.
 // Note: There is an unresolved issue with timeout errors when a pod is deleted, which requires further investigation and handling.
-func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher, resourceVersion string, port string) {
+func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher, resourceVersion string, port string, headless bool, headlessService string) {
 	retryWatcher, err := watch.NewRetryWatcher(resourceVersion, watcher)
 	if err != nil {
 		log.Errorf("Failed to create Retry Watcher: %v", err)
@@ -183,7 +185,7 @@ func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher,
 			continue
 		}
 
-		uri := fmt.Sprintf(uriTemplate, pod.Status.PodIP, port)
+		uri := buildPodDNSURI(pod, port, headless, headlessService)
 		log.Debugf("Received event for pod %s: type=%s, phase=%s", pod.Name, event.Type, pod.Status.Phase)
 
 		switch event.Type {
@@ -194,5 +196,14 @@ func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher,
 		case apiWatch.Deleted:
 			pm.processPodDeleted(exporter, pod, uri)
 		}
+	}
+}
+
+func buildPodDNSURI(pod *v1.Pod, port string, headless bool, headlessService string) string {
+	if headless {
+		hostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", pod.Name, headlessService, pod.Namespace)
+		return fmt.Sprintf(uriTemplate, hostname, port)
+	} else {
+		return fmt.Sprintf(uriTemplate, pod.Status.PodIP, port)
 	}
 }
