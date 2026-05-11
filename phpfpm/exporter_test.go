@@ -23,10 +23,10 @@ func TestPoolManagerAddStoresPodName(t *testing.T) {
 func TestNewExporterDescriptorsIncludePodLabel(t *testing.T) {
 	exporter := NewExporter(PoolManager{})
 
-	assert.Contains(t, exporter.up.String(), "variableLabels: {pool,pod,scrape_uri}")
-	assert.Contains(t, exporter.scrapeFailues.String(), "variableLabels: {pool,pod,scrape_uri}")
-	assert.Contains(t, exporter.processRequests.String(), "variableLabels: {pool,pod,child,scrape_uri}")
-	assert.Contains(t, exporter.processState.String(), "variableLabels: {pool,pod,child,state,scrape_uri}")
+	assert.Contains(t, exporter.up.String(), "variableLabels: {pool,phpfpm_pod,scrape_uri}")
+	assert.Contains(t, exporter.scrapeFailues.String(), "variableLabels: {pool,phpfpm_pod,scrape_uri}")
+	assert.Contains(t, exporter.processRequests.String(), "variableLabels: {pool,phpfpm_pod,child,scrape_uri}")
+	assert.Contains(t, exporter.processState.String(), "variableLabels: {pool,phpfpm_pod,child,state,scrape_uri}")
 }
 
 func TestExporterDescribeIncludesScrapeFailuresDescriptor(t *testing.T) {
@@ -94,7 +94,7 @@ func TestExporterCollectPoolsIncludesPodLabel(t *testing.T) {
 
 				dtoMetric := &dto.Metric{}
 				require.NoError(t, metric.Write(dtoMetric))
-				assertMetricLabelValue(t, dtoMetric.GetLabel(), "pod", tt.pod)
+				assertMetricLabelValue(t, dtoMetric.GetLabel(), "phpfpm_pod", tt.pod)
 			}
 
 			assert.NotZero(t, metricCount)
