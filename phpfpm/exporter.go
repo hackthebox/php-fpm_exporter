@@ -26,9 +26,9 @@ const (
 )
 
 var (
-	poolMetricLabels         = []string{"pool", "pod", "scrape_uri"}
-	processMetricLabels      = []string{"pool", "pod", "child", "scrape_uri"}
-	processStateMetricLabels = []string{"pool", "pod", "child", "state", "scrape_uri"}
+	poolMetricLabels         = []string{"pool", "phpfpm_pod", "scrape_uri"}
+	processMetricLabels      = []string{"pool", "phpfpm_pod", "child", "scrape_uri"}
+	processStateMetricLabels = []string{"pool", "phpfpm_pod", "child", "state", "scrape_uri"}
 )
 
 func poolLabelValues(pool Pool) []string {

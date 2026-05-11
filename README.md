@@ -133,7 +133,7 @@ Run the exporter with Kubernetes discovery enabled:
 php-fpm_exporter server --k8s.autotracking --k8s.namespace my-namespace --k8s.pod-labels 'php-fpm-exporter/collect=true'
 ```
 
-When Kubernetes auto-tracking is enabled, every emitted metric includes a `pod` label populated with the discovered pod name. Static `--phpfpm.scrape-uri` targets still expose the `pod` label with an empty value.
+When Kubernetes auto-tracking is enabled, every emitted metric includes a `phpfpm_pod` label populated with the discovered PHP-FPM pod name. Static `--phpfpm.scrape-uri` targets still expose `phpfpm_pod` with an empty value.
 
 ## Metrics collected
 
