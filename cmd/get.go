@@ -42,7 +42,7 @@ var getCmd = &cobra.Command{
 		pm := phpfpm.PoolManager{}
 
 		for _, uri := range scrapeURIs {
-			pm.Add(uri)
+			pm.Add(uri, "")
 		}
 
 		if err := pm.Update(); err != nil {

@@ -99,7 +99,7 @@ func (pm *PoolManager) handlePodRunning(exporter *Exporter, pod *v1.Pod, uri str
 	podName := pod.Name
 	if ip != "" {
 		log.Infof("Pod in Running state detected %s with IP %s. Adding in the Pool Manager..", podName, ip)
-		pm.Add(uri)
+		pm.Add(uri, podName)
 		exporter.UpdatePoolManager(*pm)
 	} else {
 		log.Debugf("Pod %s is in Running state but has no IP assigned", podName)

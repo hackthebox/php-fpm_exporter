@@ -127,7 +127,13 @@ If you like to have a more granular reporting please use `phpfpm_process_state`.
 
 ### Kubernetes Example
 
-TBD
+Run the exporter with Kubernetes discovery enabled:
+
+```bash
+php-fpm_exporter server --k8s.autotracking --k8s.namespace my-namespace --k8s.pod-labels 'php-fpm-exporter/collect=true'
+```
+
+When Kubernetes auto-tracking is enabled, every emitted metric includes a `pod` label populated with the discovered pod name. Static `--phpfpm.scrape-uri` targets still expose the `pod` label with an empty value.
 
 ## Metrics collected
 

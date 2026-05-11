@@ -25,6 +25,24 @@ const (
 	namespace = "phpfpm"
 )
 
+var (
+	poolMetricLabels         = []string{"pool", "pod", "scrape_uri"}
+	processMetricLabels      = []string{"pool", "pod", "child", "scrape_uri"}
+	processStateMetricLabels = []string{"pool", "pod", "child", "state", "scrape_uri"}
+)
+
+func poolLabelValues(pool Pool) []string {
+	return []string{pool.Name, pool.Pod, pool.Address}
+}
+
+func processLabelValues(pool Pool, child string) []string {
+	return []string{pool.Name, pool.Pod, child, pool.Address}
+}
+
+func processStateLabelValues(pool Pool, child string, state string) []string {
+	return []string{pool.Name, pool.Pod, child, state, pool.Address}
+}
+
 // Exporter configures and exposes PHP-FPM metrics to Prometheus.
 type Exporter struct {
 	mutex       sync.Mutex
@@ -62,109 +80,109 @@ func NewExporter(pm PoolManager) *Exporter {
 		up: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "up"),
 			"Could PHP-FPM be reached?",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		scrapeFailues: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "scrape_failures"),
 			"The number of failures scraping from PHP-FPM.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		startSince: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "start_since"),
 			"The number of seconds since FPM has started.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		acceptedConnections: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "accepted_connections"),
 			"The number of requests accepted by the pool.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		listenQueue: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "listen_queue"),
 			"The number of requests in the queue of pending connections.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		maxListenQueue: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "max_listen_queue"),
 			"The maximum number of requests in the queue of pending connections since FPM has started.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		listenQueueLength: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "listen_queue_length"),
 			"The size of the socket queue of pending connections.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		idleProcesses: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "idle_processes"),
 			"The number of idle processes.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		activeProcesses: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "active_processes"),
 			"The number of active processes.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		totalProcesses: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "total_processes"),
 			"The number of idle + active processes.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		maxActiveProcesses: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "max_active_processes"),
 			"The maximum number of active processes since FPM has started.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		maxChildrenReached: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "max_children_reached"),
 			"The number of times, the process limit has been reached, when pm tries to start more children (works only for pm 'dynamic' and 'ondemand').",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		slowRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "slow_requests"),
 			"The number of requests that exceeded your 'request_slowlog_timeout' value.",
-			[]string{"pool", "scrape_uri"},
+			poolMetricLabels,
 			nil),
 
 		processRequests: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "process_requests"),
 			"The number of requests the process has served.",
-			[]string{"pool", "child", "scrape_uri"},
+			processMetricLabels,
 			nil),
 
 		processLastRequestMemory: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "process_last_request_memory"),
 			"The max amount of memory the last request consumed.",
-			[]string{"pool", "child", "scrape_uri"},
+			processMetricLabels,
 			nil),
 
 		processLastRequestCPU: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "process_last_request_cpu"),
 			"The %cpu the last request consumed.",
-			[]string{"pool", "child", "scrape_uri"},
+			processMetricLabels,
 			nil),
 
 		processRequestDuration: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "process_request_duration"),
 			"The duration in microseconds of the requests.",
-			[]string{"pool", "child", "scrape_uri"},
+			processMetricLabels,
 			nil),
 
 		processState: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "process_state"),
 			"The state of the process (Idle, Running, ...).",
-			[]string{"pool", "child", "state", "scrape_uri"},
+			processStateMetricLabels,
 			nil),
 	}
 }
@@ -178,11 +196,17 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		log.Error(err)
 	}
 
-	for _, pool := range e.PoolManager.Pools {
-		ch <- prometheus.MustNewConstMetric(e.scrapeFailues, prometheus.CounterValue, float64(pool.ScrapeFailures), pool.Name, pool.Address)
+	e.collectPools(ch, e.PoolManager.Pools)
+}
+
+func (e *Exporter) collectPools(ch chan<- prometheus.Metric, pools []Pool) {
+	for _, pool := range pools {
+		poolValues := poolLabelValues(pool)
+
+		ch <- prometheus.MustNewConstMetric(e.scrapeFailues, prometheus.CounterValue, float64(pool.ScrapeFailures), poolValues...)
 
 		if pool.ScrapeError != nil {
-			ch <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 0, pool.Name, pool.Address)
+			ch <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 0, poolValues...)
 			log.Errorf("Error scraping PHP-FPM: %v", pool.ScrapeError)
 			continue
 		}
@@ -198,21 +222,22 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			total = pool.TotalProcesses
 		}
 
-		ch <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 1, pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.startSince, prometheus.CounterValue, float64(pool.StartSince), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.acceptedConnections, prometheus.CounterValue, float64(pool.AcceptedConnections), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.listenQueue, prometheus.GaugeValue, float64(pool.ListenQueue), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.maxListenQueue, prometheus.CounterValue, float64(pool.MaxListenQueue), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.listenQueueLength, prometheus.GaugeValue, float64(pool.ListenQueueLength), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.idleProcesses, prometheus.GaugeValue, float64(idle), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.activeProcesses, prometheus.GaugeValue, float64(active), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.totalProcesses, prometheus.GaugeValue, float64(total), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.maxActiveProcesses, prometheus.CounterValue, float64(pool.MaxActiveProcesses), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.maxChildrenReached, prometheus.CounterValue, float64(pool.MaxChildrenReached), pool.Name, pool.Address)
-		ch <- prometheus.MustNewConstMetric(e.slowRequests, prometheus.CounterValue, float64(pool.SlowRequests), pool.Name, pool.Address)
+		ch <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 1, poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.startSince, prometheus.CounterValue, float64(pool.StartSince), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.acceptedConnections, prometheus.CounterValue, float64(pool.AcceptedConnections), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.listenQueue, prometheus.GaugeValue, float64(pool.ListenQueue), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.maxListenQueue, prometheus.CounterValue, float64(pool.MaxListenQueue), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.listenQueueLength, prometheus.GaugeValue, float64(pool.ListenQueueLength), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.idleProcesses, prometheus.GaugeValue, float64(idle), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.activeProcesses, prometheus.GaugeValue, float64(active), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.totalProcesses, prometheus.GaugeValue, float64(total), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.maxActiveProcesses, prometheus.CounterValue, float64(pool.MaxActiveProcesses), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.maxChildrenReached, prometheus.CounterValue, float64(pool.MaxChildrenReached), poolValues...)
+		ch <- prometheus.MustNewConstMetric(e.slowRequests, prometheus.CounterValue, float64(pool.SlowRequests), poolValues...)
 
 		for childNumber, process := range pool.Processes {
 			childName := fmt.Sprintf("%d", childNumber)
+			processValues := processLabelValues(pool, childName)
 
 			states := map[string]int{
 				PoolProcessRequestIdle:           0,
@@ -225,12 +250,12 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			states[process.State]++
 
 			for stateName, inState := range states {
-				ch <- prometheus.MustNewConstMetric(e.processState, prometheus.GaugeValue, float64(inState), pool.Name, childName, stateName, pool.Address)
+				ch <- prometheus.MustNewConstMetric(e.processState, prometheus.GaugeValue, float64(inState), processStateLabelValues(pool, childName, stateName)...)
 			}
-			ch <- prometheus.MustNewConstMetric(e.processRequests, prometheus.CounterValue, float64(process.Requests), pool.Name, childName, pool.Address)
-			ch <- prometheus.MustNewConstMetric(e.processLastRequestMemory, prometheus.GaugeValue, float64(process.LastRequestMemory), pool.Name, childName, pool.Address)
-			ch <- prometheus.MustNewConstMetric(e.processLastRequestCPU, prometheus.GaugeValue, process.LastRequestCPU, pool.Name, childName, pool.Address)
-			ch <- prometheus.MustNewConstMetric(e.processRequestDuration, prometheus.GaugeValue, float64(process.RequestDuration), pool.Name, childName, pool.Address)
+			ch <- prometheus.MustNewConstMetric(e.processRequests, prometheus.CounterValue, float64(process.Requests), processValues...)
+			ch <- prometheus.MustNewConstMetric(e.processLastRequestMemory, prometheus.GaugeValue, float64(process.LastRequestMemory), processValues...)
+			ch <- prometheus.MustNewConstMetric(e.processLastRequestCPU, prometheus.GaugeValue, process.LastRequestCPU, processValues...)
+			ch <- prometheus.MustNewConstMetric(e.processRequestDuration, prometheus.GaugeValue, float64(process.RequestDuration), processValues...)
 		}
 	}
 }
@@ -238,6 +263,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 // Describe exposes the metric description to Prometheus
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.up
+	ch <- e.scrapeFailues
 	ch <- e.startSince
 	ch <- e.acceptedConnections
 	ch <- e.listenQueue
