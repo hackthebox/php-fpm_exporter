@@ -10,6 +10,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Modified 2026 by Hack The Box: replaced tomasen/fcgi_client with a
+// deadline-safe FastCGI client (see phpfpm/fcgi) to fix a per-scrape goroutine
+// and socket leak that occurred when the PHP-FPM /status endpoint stalled.
 
 // Package phpfpm provides convenient access to PHP-FPM pool data
 package phpfpm
@@ -17,7 +21,6 @@ package phpfpm
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -25,9 +28,14 @@ import (
 	"sync"
 	"time"
 
-	fcgiclient "github.com/tomasen/fcgi_client"
+	"github.com/hipages/php-fpm_exporter/phpfpm/fcgi"
 	v1 "k8s.io/api/core/v1"
 )
+
+// scrapeTimeout bounds the whole FastCGI exchange. Without it a stalled
+// PHP-FPM /status (e.g. during a graceful reload) blocks the read forever and
+// leaks a goroutine and a socket on every scrape.
+const scrapeTimeout = 3 * time.Second
 
 // PoolProcessRequestIdle defines a process that is idle.
 const PoolProcessRequestIdle string = "Idle"
@@ -184,29 +192,17 @@ func (p *Pool) Update() (err error) {
 		return p.error(err)
 	}
 
-	fcgi, err := fcgiclient.DialTimeout(scheme, address, time.Duration(3)*time.Second)
-	if err != nil {
-		return p.error(err)
-	}
-
-	defer fcgi.Close()
-
 	env := map[string]string{
 		"SCRIPT_FILENAME": path,
 		"SCRIPT_NAME":     path,
 		"SERVER_SOFTWARE": "go / php-fpm_exporter",
 		"REMOTE_ADDR":     "127.0.0.1",
 		"QUERY_STRING":    "json&full",
+		"REQUEST_METHOD":  "GET",
+		"CONTENT_LENGTH":  "0",
 	}
 
-	resp, err := fcgi.Get(env)
-	if err != nil {
-		return p.error(err)
-	}
-
-	defer resp.Body.Close()
-
-	content, err := ioutil.ReadAll(resp.Body)
+	content, err := fcgi.Get(scheme, address, env, scrapeTimeout)
 	if err != nil {
 		return p.error(err)
 	}
