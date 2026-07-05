@@ -32,10 +32,20 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// scrapeTimeout bounds the whole FastCGI exchange. Without it a stalled
-// PHP-FPM /status (e.g. during a graceful reload) blocks the read forever and
-// leaks a goroutine and a socket on every scrape.
-const scrapeTimeout = 3 * time.Second
+// defaultScrapeTimeout bounds the whole FastCGI exchange when no per-scrape
+// timeout is configured. Without a deadline a stalled PHP-FPM /status (e.g.
+// during a graceful reload) blocks the read forever and leaks a goroutine and a
+// socket on every scrape.
+const defaultScrapeTimeout = 3 * time.Second
+
+// resolveTimeout returns d when positive, otherwise defaultScrapeTimeout, so a
+// zero value (e.g. a Kubernetes-discovered pool) still gets a safe deadline.
+func resolveTimeout(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultScrapeTimeout
+	}
+	return d
+}
 
 // PoolProcessRequestIdle defines a process that is idle.
 const PoolProcessRequestIdle string = "Idle"
@@ -69,8 +79,9 @@ type logger interface {
 
 // PoolManager manages all configured Pools
 type PoolManager struct {
-	Pools     []Pool                 `json:"pools"`
-	PodPhases map[string]v1.PodPhase `json:"podPhases"`
+	Pools         []Pool                 `json:"pools"`
+	PodPhases     map[string]v1.PodPhase `json:"podPhases"`
+	ScrapeTimeout time.Duration          `json:"-"`
 }
 
 // Pool describes a single PHP-FPM pool that can be reached via a Socket or TCP address
@@ -136,13 +147,14 @@ func (pm *PoolManager) Add(uri string) Pool {
 func (pm *PoolManager) Update() (err error) {
 	wg := &sync.WaitGroup{}
 
+	timeout := pm.ScrapeTimeout
 	started := time.Now()
 
 	for idx := range pm.Pools {
 		wg.Add(1)
 		go func(p *Pool) {
 			defer wg.Done()
-			if err := p.Update(); err != nil {
+			if err := p.Update(timeout); err != nil {
 				log.Error(err)
 			}
 		}(&pm.Pools[idx])
@@ -184,7 +196,7 @@ func (pm *PoolManager) Remove(exporter *Exporter, uri string) {
 }
 
 // Update will connect to PHP-FPM and retrieve the latest data for the pool.
-func (p *Pool) Update() (err error) {
+func (p *Pool) Update(timeout time.Duration) (err error) {
 	p.ScrapeError = nil
 
 	scheme, address, path, err := parseURL(p.Address)
@@ -202,7 +214,7 @@ func (p *Pool) Update() (err error) {
 		"CONTENT_LENGTH":  "0",
 	}
 
-	content, err := fcgi.Get(scheme, address, env, scrapeTimeout)
+	content, err := fcgi.Get(scheme, address, env, resolveTimeout(timeout))
 	if err != nil {
 		return p.error(err)
 	}
