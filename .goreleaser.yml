@@ -14,6 +14,7 @@ builds:
 
 dockers:
   - use: buildx
+    dockerfile: Dockerfile.goreleaser
     goos: linux
     goarch: amd64
     image_templates:
@@ -25,6 +26,7 @@ dockers:
       - "--build-arg=BUILD_DATE={{.Date}}"
       - "--build-arg=VCS_REF={{.FullCommit}}"
   - use: buildx
+    dockerfile: Dockerfile.goreleaser
     goos: linux
     goarch: arm64
     image_templates:
