@@ -5,11 +5,18 @@ on:
   schedule:
     - cron: "0 0 1 * *"
 
+permissions:
+  contents: read
+
 jobs:
   tag:
     name: Tag
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     steps:
 
     - name: Setup Node.js for use with actions
@@ -24,7 +31,8 @@ jobs:
       run: yarn global add --no-progress --non-interactive "semantic-release" "@semantic-release/exec"
 
     - name: Run semantic-release
-      run: $(yarn global bin)/semantic-release
+      run: |
+        "$(yarn global bin)/semantic-release"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -32,6 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     # if: startsWith(github.ref, 'refs/tags/')
     needs: [tag]
+    permissions:
+      contents: write
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -41,7 +52,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
-          go-version: 1.17
+          go-version-file: go.mod
         id: go
 
       - name: Login to DockerHub
@@ -60,7 +71,7 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          version: latest
-          args: release --rm-dist
+          version: '~> v2'
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

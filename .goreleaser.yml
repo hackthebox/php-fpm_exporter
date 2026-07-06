@@ -1,3 +1,5 @@
+version: 2
+
 builds:
   - binary: php-fpm_exporter
     env:
@@ -74,6 +76,6 @@ changelog:
 
 archives:
   - id: default
-    format: binary
+    formats: [binary]
   - id: targz
-    format: tar.gz
+    formats: [tar.gz]
