@@ -117,6 +117,14 @@ func fakeFPM(t *testing.T, body string) string {
 			return
 		}
 		defer conn.Close()
+		// Drain the request before replying: closing with it unread RSTs the
+		// client's in-flight write (flaky "connection reset by peer").
+		for {
+			typ, _, err := readRecord(conn)
+			if err != nil || typ == typeStdin {
+				break
+			}
+		}
 		_ = writeRecord(conn, typeStdout, []byte("Content-type: application/json\r\n\r\n"+body))
 		_ = writeRecord(conn, typeEndRequest, []byte{0, 0, 0, 0, 0, 0, 0, 0})
 	}()

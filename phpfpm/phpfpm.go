@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hipages/php-fpm_exporter/phpfpm/fcgi"
+	"github.com/hackthebox/php-fpm_exporter/phpfpm/fcgi"
 	v1 "k8s.io/api/core/v1"
 )
 

@@ -15,6 +15,12 @@ The exporter connects directly to PHP-FPM and exports the metrics via HTTP.
 
 A webserver such as NGINX or Apache is **NOT** needed!
 
+> **Fork note:** This is Hack The Box's maintained fork of
+> [hipages/php-fpm_exporter](https://github.com/hipages/php-fpm_exporter),
+> originally created by Enrico Stahn and hipages. Thank you for the original
+> project, which this builds on under the Apache-2.0 license. (Some badges above
+> still reference the upstream repository.)
+
 ## Table of Contents
 
 <!-- toc -->
