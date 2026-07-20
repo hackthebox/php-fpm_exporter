@@ -16,6 +16,7 @@ package phpfpm
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -35,6 +36,12 @@ func TestCountProcessState(t *testing.T) {
 	assert.Equal(t, int64(2), active, "active processes")
 	assert.Equal(t, int64(1), idle, "idle processes")
 	assert.Equal(t, int64(3), total, "total processes")
+}
+
+func TestResolveTimeout(t *testing.T) {
+	assert.Equal(t, defaultScrapeTimeout, resolveTimeout(0), "zero falls back to default")
+	assert.Equal(t, defaultScrapeTimeout, resolveTimeout(-time.Second), "negative falls back to default")
+	assert.Equal(t, 5*time.Second, resolveTimeout(5*time.Second), "positive passes through")
 }
 
 // https://github.com/hipages/php-fpm_exporter/issues/10

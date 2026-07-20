@@ -10,6 +10,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Modified 2026 by Hack The Box: replaced tomasen/fcgi_client with a
+// deadline-safe FastCGI client (see phpfpm/fcgi) to fix a per-scrape goroutine
+// and socket leak that occurred when the PHP-FPM /status endpoint stalled.
 
 // Package phpfpm provides convenient access to PHP-FPM pool data
 package phpfpm
@@ -17,7 +21,6 @@ package phpfpm
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -25,9 +28,24 @@ import (
 	"sync"
 	"time"
 
-	fcgiclient "github.com/tomasen/fcgi_client"
+	"github.com/hackthebox/php-fpm_exporter/phpfpm/fcgi"
 	v1 "k8s.io/api/core/v1"
 )
+
+// defaultScrapeTimeout bounds the whole FastCGI exchange when no per-scrape
+// timeout is configured. Without a deadline a stalled PHP-FPM /status (e.g.
+// during a graceful reload) blocks the read forever and leaks a goroutine and a
+// socket on every scrape.
+const defaultScrapeTimeout = 3 * time.Second
+
+// resolveTimeout returns d when positive, otherwise defaultScrapeTimeout, so a
+// zero value (e.g. a Kubernetes-discovered pool) still gets a safe deadline.
+func resolveTimeout(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultScrapeTimeout
+	}
+	return d
+}
 
 // PoolProcessRequestIdle defines a process that is idle.
 const PoolProcessRequestIdle string = "Idle"
@@ -61,8 +79,9 @@ type logger interface {
 
 // PoolManager manages all configured Pools
 type PoolManager struct {
-	Pools     []Pool                 `json:"pools"`
-	PodPhases map[string]v1.PodPhase `json:"podPhases"`
+	Pools         []Pool                 `json:"pools"`
+	PodPhases     map[string]v1.PodPhase `json:"podPhases"`
+	ScrapeTimeout time.Duration          `json:"-"`
 }
 
 // Pool describes a single PHP-FPM pool that can be reached via a Socket or TCP address
@@ -128,13 +147,14 @@ func (pm *PoolManager) Add(uri string) Pool {
 func (pm *PoolManager) Update() (err error) {
 	wg := &sync.WaitGroup{}
 
+	timeout := pm.ScrapeTimeout
 	started := time.Now()
 
 	for idx := range pm.Pools {
 		wg.Add(1)
 		go func(p *Pool) {
 			defer wg.Done()
-			if err := p.Update(); err != nil {
+			if err := p.Update(timeout); err != nil {
 				log.Error(err)
 			}
 		}(&pm.Pools[idx])
@@ -176,7 +196,7 @@ func (pm *PoolManager) Remove(exporter *Exporter, uri string) {
 }
 
 // Update will connect to PHP-FPM and retrieve the latest data for the pool.
-func (p *Pool) Update() (err error) {
+func (p *Pool) Update(timeout time.Duration) (err error) {
 	p.ScrapeError = nil
 
 	scheme, address, path, err := parseURL(p.Address)
@@ -184,29 +204,17 @@ func (p *Pool) Update() (err error) {
 		return p.error(err)
 	}
 
-	fcgi, err := fcgiclient.DialTimeout(scheme, address, time.Duration(3)*time.Second)
-	if err != nil {
-		return p.error(err)
-	}
-
-	defer fcgi.Close()
-
 	env := map[string]string{
 		"SCRIPT_FILENAME": path,
 		"SCRIPT_NAME":     path,
 		"SERVER_SOFTWARE": "go / php-fpm_exporter",
 		"REMOTE_ADDR":     "127.0.0.1",
 		"QUERY_STRING":    "json&full",
+		"REQUEST_METHOD":  "GET",
+		"CONTENT_LENGTH":  "0",
 	}
 
-	resp, err := fcgi.Get(env)
-	if err != nil {
-		return p.error(err)
-	}
-
-	defer resp.Body.Close()
-
-	content, err := ioutil.ReadAll(resp.Body)
+	content, err := fcgi.Get(scheme, address, env, resolveTimeout(timeout))
 	if err != nil {
 		return p.error(err)
 	}

@@ -1,3 +1,5 @@
+version: 2
+
 builds:
   - binary: php-fpm_exporter
     env:
@@ -12,60 +14,62 @@ builds:
 
 dockers:
   - use: buildx
+    dockerfile: Dockerfile.goreleaser
     goos: linux
     goarch: amd64
     image_templates:
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--build-arg=VERSION={{.Version}}"
       - "--build-arg=BUILD_DATE={{.Date}}"
       - "--build-arg=VCS_REF={{.FullCommit}}"
   - use: buildx
+    dockerfile: Dockerfile.goreleaser
     goos: linux
     goarch: arm64
     image_templates:
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
     build_flag_templates:
       - "--platform=linux/arm64/v8"
       - "--build-arg=VERSION={{.Version}}"
       - "--build-arg=BUILD_DATE={{.Date}}"
       - "--build-arg=VCS_REF={{.FullCommit}}"
 docker_manifests:
-  - name_template: "hipages/php-fpm_exporter:latest"
+  - name_template: "hackthebox/php-fpm_exporter:latest"
     image_templates:
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
     image_templates:
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}"
     image_templates:
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "hipages/php-fpm_exporter:{{ .Major }}"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "hackthebox/php-fpm_exporter:{{ .Major }}"
     image_templates:
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "ghcr.io/hipages/php-fpm_exporter:latest"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "ghcr.io/hackthebox/php-fpm_exporter:latest"
     image_templates:
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
     image_templates:
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}"
     image_templates:
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+  - name_template: "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}"
     image_templates:
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "ghcr.io/hipages/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
+      - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
 
 changelog:
   filters:
@@ -74,6 +78,6 @@ changelog:
 
 archives:
   - id: default
-    format: binary
+    formats: [binary]
   - id: targz
-    format: tar.gz
+    formats: [tar.gz]

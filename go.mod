@@ -1,4 +1,4 @@
-module github.com/hipages/php-fpm_exporter
+module github.com/hackthebox/php-fpm_exporter
 
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -9,7 +9,6 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
-	github.com/tomasen/fcgi_client v0.0.0-20180423082037-2bb3d819fd19
 	k8s.io/api v0.32.0
 	k8s.io/apimachinery v0.32.0
 	k8s.io/client-go v0.32.0

@@ -1,0 +1,17 @@
+FROM alpine:3.21.2
+
+ARG VERSION
+ARG BUILD_DATE
+ARG VCS_REF
+
+LABEL org.opencontainers.image.title="php-fpm_exporter" \
+      org.opencontainers.image.source="https://github.com/hackthebox/php-fpm_exporter" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
+COPY php-fpm_exporter /php-fpm_exporter
+
+EXPOSE 9253
+
+ENTRYPOINT ["/php-fpm_exporter", "server"]

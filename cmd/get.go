@@ -20,7 +20,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gosuri/uitable"
-	"github.com/hipages/php-fpm_exporter/phpfpm"
+	"github.com/hackthebox/php-fpm_exporter/phpfpm"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +40,7 @@ var getCmd = &cobra.Command{
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		pm := phpfpm.PoolManager{}
+		pm.ScrapeTimeout = scrapeTimeout
 
 		for _, uri := range scrapeURIs {
 			pm.Add(uri)
@@ -102,5 +103,6 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	getCmd.Flags().StringSliceVar(&scrapeURIs, "phpfpm.scrape-uri", []string{"tcp://127.0.0.1:9000/status"}, "FastCGI address, e.g. unix:///tmp/php.sock;/status or tcp://127.0.0.1:9000/status")
+	getCmd.Flags().DurationVar(&scrapeTimeout, "phpfpm.scrape-timeout", 3*time.Second, "Timeout for scraping a PHP-FPM status endpoint; a stalled endpoint aborts after this instead of blocking.")
 	getCmd.Flags().StringVar(&output, "out", "text", "Output format. One of: text, json, spew")
 }

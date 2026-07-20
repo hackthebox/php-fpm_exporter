@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hipages/php-fpm_exporter/phpfpm"
+	"github.com/hackthebox/php-fpm_exporter/phpfpm"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
@@ -34,6 +34,7 @@ var (
 	metricsEndpoint  string
 	scrapeURIs       []string
 	fixProcessCount  bool
+	scrapeTimeout    time.Duration
 	k8sAutoTracking  bool
 	namespace        string
 	podLabels        string
@@ -56,6 +57,7 @@ to quickly create a Cobra application.`,
 		pm := phpfpm.PoolManager{
 			PodPhases: make(map[string]v1.PodPhase),
 		}
+		pm.ScrapeTimeout = scrapeTimeout
 		// Initialize the Exporter before any dynamic or static setup
 		exporter := phpfpm.NewExporter(pm)
 
@@ -149,6 +151,7 @@ func init() {
 	// PHP FPM
 	serverCmd.Flags().StringSliceVar(&scrapeURIs, "phpfpm.scrape-uri", []string{"tcp://127.0.0.1:9000/status"}, "FastCGI address, e.g. unix:///tmp/php.sock;/status or tcp://127.0.0.1:9000/status")
 	serverCmd.Flags().BoolVar(&fixProcessCount, "phpfpm.fix-process-count", false, "Enable to calculate process numbers via php-fpm_exporter since PHP-FPM sporadically reports wrong active/idle/total process numbers.")
+	serverCmd.Flags().DurationVar(&scrapeTimeout, "phpfpm.scrape-timeout", 3*time.Second, "Timeout for scraping a PHP-FPM status endpoint; a stalled endpoint aborts after this instead of blocking.")
 
 	// Kubernetes
 	serverCmd.Flags().BoolVar(&k8sAutoTracking, "k8s.autotracking", false, "Enable automatic tracking of PHP-FPM pods in Kubernetes.")
@@ -163,6 +166,7 @@ func init() {
 		"PHP_FPM_WEB_TELEMETRY_PATH": "web.telemetry-path",
 		"PHP_FPM_SCRAPE_URI":         "phpfpm.scrape-uri",
 		"PHP_FPM_FIX_PROCESS_COUNT":  "phpfpm.fix-process-count",
+		"PHP_FPM_SCRAPE_TIMEOUT":     "phpfpm.scrape-timeout",
 		"PHP_FPM_K8S_AUTOTRACKING":   "k8s.autotracking",
 		"PHP_FPM_K8S_NAMESPACE":      "k8s.namespace",
 		"PHP_FPM_K8S_POD_LABELS":     "k8s.pod-labels",
