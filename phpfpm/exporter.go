@@ -22,14 +22,13 @@ import (
 )
 
 const (
-	namespace      = "phpfpm"
-	phpfpmPodLabel = "phpfpm_pod"
+	namespace = "phpfpm"
 )
 
 var (
-	poolMetricLabels         = []string{"pool", phpfpmPodLabel, "scrape_uri"}
-	processMetricLabels      = []string{"pool", phpfpmPodLabel, "child", "scrape_uri"}
-	processStateMetricLabels = []string{"pool", phpfpmPodLabel, "child", "state", "scrape_uri"}
+	poolMetricLabels         = []string{"pool", "phpfpm_pod", "scrape_uri"}
+	processMetricLabels      = []string{"pool", "phpfpm_pod", "child", "scrape_uri"}
+	processStateMetricLabels = []string{"pool", "phpfpm_pod", "child", "state", "scrape_uri"}
 )
 
 func poolLabelValues(pool Pool) []string {
