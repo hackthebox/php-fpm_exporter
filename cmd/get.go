@@ -43,7 +43,7 @@ var getCmd = &cobra.Command{
 		pm.ScrapeTimeout = scrapeTimeout
 
 		for _, uri := range scrapeURIs {
-			pm.Add(uri)
+			pm.Add(uri, "")
 		}
 
 		if err := pm.Update(); err != nil {

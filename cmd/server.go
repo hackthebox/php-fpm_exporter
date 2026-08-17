@@ -74,7 +74,7 @@ to quickly create a Cobra application.`,
 		} else {
 			// Static scraping of predefined URIs
 			for _, uri := range scrapeURIs {
-				pm.Add(uri)
+				pm.Add(uri, "")
 			}
 			exporter.UpdatePoolManager(pm)
 		}
