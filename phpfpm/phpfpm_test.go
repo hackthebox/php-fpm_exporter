@@ -175,6 +175,55 @@ func TestPoolManagerRemoveIgnoresUnknownURI(t *testing.T) {
 	assert.Equal(t, "tcp://10.0.0.1:9000/status", pm.Pools[0].Address)
 }
 
+// This is the path `php-fpm_exporter get --out json` takes. Pools is a slice, so
+// its elements are addressable and encoding/json does reach the pointer-receiver
+// MarshalJSON methods on the process fields.
+func TestPoolManagerMarshalsToValidJSON(t *testing.T) {
+	pm := PoolManager{Pools: []Pool{{
+		Name:      "www",
+		StartTime: timestamp(time.Unix(1519474655, 0)),
+		Processes: []PoolProcess{{
+			PID:             23,
+			State:           PoolProcessRequestIdle,
+			RequestDuration: 295,
+		}},
+	}}}
+
+	content, err := json.Marshal(pm)
+	require.NoError(t, err)
+
+	var decoded PoolManager
+	require.NoError(t, json.Unmarshal(content, &decoded),
+		"the output must be valid JSON, not a formatted pointer: %s", content)
+
+	require.Len(t, decoded.Pools, 1)
+	require.Len(t, decoded.Pools[0].Processes, 1)
+	assert.Equal(t, requestDuration(295), decoded.Pools[0].Processes[0].RequestDuration,
+		"request duration must survive the round trip")
+	assert.Equal(t, int64(1519474655), time.Time(decoded.Pools[0].StartTime).Unix())
+}
+
+func TestRequestDurationMarshalJSONEmitsTheNumber(t *testing.T) {
+	tests := []struct {
+		name string
+		in   requestDuration
+		want string
+	}{
+		{name: "typical", in: 295, want: "295"},
+		{name: "zero", in: 0, want: "0"},
+		{name: "large", in: 18446744073709, want: "18446744073709"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.in.MarshalJSON()
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, string(got))
+		})
+	}
+}
+
 func TestCountProcessState(t *testing.T) {
 	processes := []PoolProcess{
 		{State: PoolProcessRequestIdle},

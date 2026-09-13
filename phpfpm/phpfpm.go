@@ -20,7 +20,6 @@ package phpfpm
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -299,8 +298,7 @@ type timestamp time.Time
 // MarshalJSON customise JSON for timestamp
 func (t *timestamp) MarshalJSON() ([]byte, error) {
 	ts := time.Time(*t).Unix()
-	stamp := fmt.Sprint(ts)
-	return []byte(stamp), nil
+	return []byte(strconv.FormatInt(ts, 10)), nil
 }
 
 // UnmarshalJSON customise JSON for timestamp
@@ -318,8 +316,10 @@ func (t *timestamp) UnmarshalJSON(b []byte) error {
 // https://bugs.php.net/bug.php?id=62382
 // https://serverfault.com/questions/624977/huge-request-duration-value-for-a-particular-php-script
 func (rd *requestDuration) MarshalJSON() ([]byte, error) {
-	stamp := fmt.Sprint(rd)
-	return []byte(stamp), nil
+	// Format the value, not the pointer: fmt.Sprint on a *requestDuration
+	// printed the address, so `get --out json` emitted 0xc000... where a number
+	// belonged and the whole document failed to parse.
+	return []byte(strconv.FormatInt(int64(*rd), 10)), nil
 }
 
 func (rd *requestDuration) UnmarshalJSON(b []byte) error {
