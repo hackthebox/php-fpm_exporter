@@ -133,6 +133,13 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
   built image with a `--filter=reference=` on the *ghcr.io* name; that filter
   matches the repository name exactly, so it silently finds nothing if the image templates are renamed.
 - The repo has no `.crap-gated` marker, so the touchstone per-function gate does not apply here.
+- **The contributor links in `README.md` are deliberately split.** The eleven contributors inherited from
+  upstream link to `hipages/php-fpm_exporter`, where their work originated; the Hack The Box ones link here,
+  because this is the only place their commits exist. `.all-contributorsrc` has `projectOwner: hackthebox`,
+  which it must, or regenerating would attribute HTB commits upstream. The consequence is that running the
+  `all-contributors` CLI rewrites all of them to point here. That may one day be right, if this fork becomes
+  the maintained continuation rather than one of 155, but it relocates other people's attribution and is a
+  decision to take deliberately, not by running a generator. Re-split by hand if it happens by accident.
 - `CountProcessState` mirrors PHP-FPM: a child is idle only while accepting, every other stage is active, and
   an unrecognised stage counts as active so it cannot vanish from the total. The stage list comes from
   `sapi/fpm/fpm/fpm_request.c` in php-src; `Creating` was missing for years and produced the log spam in
