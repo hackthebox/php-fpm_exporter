@@ -59,6 +59,7 @@ It uses sensible defaults which usually avoids the need to use command parameter
 
 `php-fpm_exporter` supports 2 commands, `get` and `server`.
 The `get` command allows to retrieve information from PHP-FPM without running as a server and exposing an endpoint.
+It prints whatever it managed to collect and exits non-zero if any target could not be scraped, so it can be used in scripts and health checks.
 The `server` command runs the server required for prometheus to retrieve the statistics.
 
 ### Options and defaults
@@ -82,6 +83,9 @@ The metric `active processes` is also an accumulation of multiple states (e.g. R
 Which shouldn't matter and `active processes` should still be equal or lower to `max_children`.
 
 `--phpfpm.fix-process-count` will emulate PHP-FPMs implementation including the accumulation of multiple states.
+PHP-FPM treats a child as idle only while it is accepting; every other stage (`Creating`, `Reading headers`,
+`Getting request information`, `Running`, `Finishing`, `Ending`) counts as active. `total processes` is therefore
+always the number of processes PHP-FPM reported.
 
 If you like to have a more granular reporting please use `phpfpm_process_state`.
 

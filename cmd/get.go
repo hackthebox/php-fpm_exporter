@@ -16,6 +16,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -46,9 +47,9 @@ var getCmd = &cobra.Command{
 			pm.Add(uri, "")
 		}
 
-		if err := pm.Update(); err != nil {
-			log.Fatal("Could not update pool.", err)
-		}
+		// Report the scrape result through the exit code, but print what was
+		// collected first: a partial result is still worth having.
+		scrapeErr := pm.Update()
 
 		switch output {
 		case "json":
@@ -87,6 +88,11 @@ var getCmd = &cobra.Command{
 			spew.Dump(pm)
 		default:
 			log.Error("Output format not valid.")
+		}
+
+		if scrapeErr != nil {
+			log.Error("Could not update pool. ", scrapeErr)
+			os.Exit(1)
 		}
 	},
 }

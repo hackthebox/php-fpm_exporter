@@ -126,3 +126,12 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
   built image with a `--filter=reference=` on the *ghcr.io* name; that filter
   matches the repository name exactly, so it silently finds nothing if the image templates are renamed.
 - The repo has no `.crap-gated` marker, so the touchstone per-function gate does not apply here.
+- `CountProcessState` mirrors PHP-FPM: a child is idle only while accepting, every other stage is active, and
+  an unrecognised stage counts as active so it cannot vanish from the total. The stage list comes from
+  `sapi/fpm/fpm/fpm_request.c` in php-src; `Creating` was missing for years and produced the log spam in
+  hipages/php-fpm_exporter#419, while dropping Finishing/Ending/Info from the total is
+  hipages/php-fpm_exporter#322.
+- `log` in `phpfpm` defaults to a discarding logger and `SetLogger` ignores nil, because it is a package
+  global that a library caller need never set.
+- `PoolManager.Update` returns the joined per-pool scrape errors. `Pool.error` already logs each one, so
+  callers should not log the aggregate again; `cmd/get.go` turns it into a non-zero exit code.
