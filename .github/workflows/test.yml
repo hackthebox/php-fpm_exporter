@@ -1,7 +1,16 @@
-name: Test PR
+# One workflow for both events on purpose. Code scanning derives an analysis's
+# key from the workflow file path plus job name, so a PR scanned by test_pr.yml
+# and master scanned by test_push.yml were two configurations that could never
+# match, and every PR reported "1 configuration not found" instead of a diff.
+# Splitting these back into separate files brings that back.
+name: Test
 on:
-  pull_request:
   workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+      - 'releases/*'
 
 permissions:
   contents: read
@@ -88,11 +97,6 @@ jobs:
         acs-report-enable: true
         fail-build: false
 
-    # Without an explicit category, code scanning keys the analysis on the
-    # workflow file and job name. A PR would then upload under test_pr.yml while
-    # master sits under test_push.yml, so the two never match and every PR gets
-    # "1 configuration not found" instead of a diff. Keep this value identical in
-    # test_push.yml.
     - name: Upload Anchore scan SARIF report
       uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       with:

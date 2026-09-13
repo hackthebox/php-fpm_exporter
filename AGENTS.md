@@ -85,10 +85,13 @@ HTB addition and is present but empty for statically configured pools.
 
 Workflows in `.github/workflows/`, all actions pinned by SHA:
 
-- `test_pr.yml` / `test_push.yml` — lint (`golangci-lint`, `only-new-issues: true`, so pre-existing
-  findings do not block), `go test ./...`, and a goreleaser `--snapshot` build scanned with Anchore.
+- `test.yml` — lint (`golangci-lint`, `only-new-issues: true`, so pre-existing
+  findings do not block), `go test ./...`, and a goreleaser `--snapshot` build scanned with Anchore. It
+  handles `pull_request` and `push` in one file deliberately: code scanning keys an analysis on the
+  workflow file path plus job name, so scanning the two events from two files produced configurations that
+  could never match, and every PR reported "1 configuration not found" instead of a vulnerability diff.
 - `release.yml` — manual or monthly. semantic-release tags from `master`, then goreleaser publishes
-  binaries plus multi-arch images to Docker Hub and GHCR (`.goreleaser.yml`, `Dockerfile.goreleaser`).
+  binaries plus multi-arch images to GHCR only (`.goreleaser.yml`, `Dockerfile.goreleaser`).
 - `build-and-push.yml` — on a `v*` tag, builds the plain `Dockerfile` and pushes to HTB's ECR via OIDC.
   This is the image the HTB clusters actually run, and it is a separate build from the goreleaser one.
 
@@ -109,7 +112,7 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
   a human does trigger it, which is why that is the working path.
 - **This fork publishes images to GHCR only, never Docker Hub.** Pushing `php-fpm_exporter` to Docker Hub
   belongs to upstream hipages. The release job therefore has no Docker Hub login, and `.goreleaser.yml`
-  carries no bare `hackthebox/php-fpm_exporter` image or manifest. The Anchore scan in `test_pr.yml` and
-  `test_push.yml` picks the built image with a `--filter=reference=` on the *ghcr.io* name; that filter
+  carries no bare `hackthebox/php-fpm_exporter` image or manifest. The Anchore scan in `test.yml` picks the
+  built image with a `--filter=reference=` on the *ghcr.io* name; that filter
   matches the repository name exactly, so it silently finds nothing if the image templates are renamed.
 - The repo has no `.crap-gated` marker, so the touchstone per-function gate does not apply here.
