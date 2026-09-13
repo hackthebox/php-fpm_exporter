@@ -1,19 +1,69 @@
 version: 2
+
+# Dependabot assigns a dependency to the first group whose patterns match.
+# Anything matching no group still gets its own PR, which is what we want for
+# majors: they need a human anyway and should not block a batch of patches.
 updates:
-  - package-ecosystem: "github-actions"
+  - package-ecosystem: "gomod"
     directory: "/"
-    target-branch: "master"
     schedule:
       interval: "monthly"
+    # semantic-release (.releaserc) decides the monthly release from commit
+    # prefixes and only feat/fix/perf produce one, so a dependency bump landed
+    # under the default `chore(deps)` never shipped a release of its own.
+    commit-message:
+      prefix: "fix(deps)"
+      include: "scope"
+    groups:
+      # k8s.io/api, k8s.io/apimachinery and k8s.io/client-go are only supported
+      # at a matching minor. Split across PRs they do not compile, so this group
+      # carries no update-types filter and keeps them together unconditionally.
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+      go-modules:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      # Security updates are ungrouped by default and exempt from
+      # open-pull-requests-limit, so without this every advisory opens its own PR
+      # (including ones against indirect dependencies such as golang.org/x/net).
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: "docker"
     directory: "/"
-    target-branch: "master"
     schedule:
       interval: "daily"
+    # Base images ship inside the released artifact, same as Go dependencies.
+    commit-message:
+      prefix: "fix(deps)"
+      include: "scope"
+    # No security-updates group: Dependabot does not raise security updates for
+    # the docker ecosystem, only version updates.
+    groups:
+      docker:
+        patterns:
+          - "*"
 
-  - package-ecosystem: "gomod"
+  - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "master"
     schedule:
       interval: "monthly"
+    # CI-only, nothing reaches the published binary or image, so these must not
+    # trigger a release.
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
