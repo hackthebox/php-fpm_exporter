@@ -18,7 +18,6 @@ dockers:
     goos: linux
     goarch: amd64
     image_templates:
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
       - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -30,7 +29,6 @@ dockers:
     goos: linux
     goarch: arm64
     image_templates:
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
       - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
     build_flag_templates:
       - "--platform=linux/arm64/v8"
@@ -38,22 +36,6 @@ dockers:
       - "--build-arg=BUILD_DATE={{.Date}}"
       - "--build-arg=VCS_REF={{.FullCommit}}"
 docker_manifests:
-  - name_template: "hackthebox/php-fpm_exporter:latest"
-    image_templates:
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}"
-    image_templates:
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}"
-    image_templates:
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
-  - name_template: "hackthebox/php-fpm_exporter:{{ .Major }}"
-    image_templates:
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"
-      - "hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-arm64"
   - name_template: "ghcr.io/hackthebox/php-fpm_exporter:latest"
     image_templates:
       - "ghcr.io/hackthebox/php-fpm_exporter:{{ .Major }}.{{ .Minor }}.{{ .Patch }}-amd64"

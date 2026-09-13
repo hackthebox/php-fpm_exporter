@@ -77,7 +77,7 @@ jobs:
     # only exists after a push), so scan the amd64 image it just built.
     - name: Tag built image for scanning
       run: |
-        image="$(docker images --filter=reference='hackthebox/php-fpm_exporter:*-amd64' --format '{{.Repository}}:{{.Tag}}' | head -n1)"
+        image="$(docker images --filter=reference='ghcr.io/hackthebox/php-fpm_exporter:*-amd64' --format '{{.Repository}}:{{.Tag}}' | head -n1)"
         docker tag "$image" localbuild/php-fpm_exporter:scan
 
     - name: Scan image
