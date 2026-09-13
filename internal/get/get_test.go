@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,89 @@ func TestRunWritesTheTextTable(t *testing.T) {
 		assert.Contains(t, body, want)
 	}
 	assert.Contains(t, body, "tcp://127.0.0.1:1/status", "the table names the target")
+}
+
+// Every field gets a distinct value, so dropping any single row is visible.
+func TestTableRendersEveryPoolField(t *testing.T) {
+	pm := phpfpm.PoolManager{Pools: []phpfpm.Pool{{
+		Address:             "tcp://10.0.0.1:9000/status",
+		Name:                "academy",
+		StartSince:          111,
+		AcceptedConnections: 222,
+		ListenQueue:         333,
+		MaxListenQueue:      444,
+		ListenQueueLength:   555,
+		IdleProcesses:       666,
+		ActiveProcesses:     777,
+		TotalProcesses:      888,
+		MaxActiveProcesses:  999,
+		MaxChildrenReached:  1010,
+		SlowRequests:        1111,
+	}}}
+
+	got := table(pm).String()
+
+	rows := [][2]string{
+		{"Address:", "tcp://10.0.0.1:9000/status"},
+		{"Pool:", "academy"},
+		{"Start time:", "Mon, 01 Jan 0001 00:00:00 +0000"},
+		{"Start since:", "111"},
+		{"Accepted connections:", "222"},
+		{"Listen Queue:", "333"},
+		{"Max Listen Queue:", "444"},
+		{"Listen Queue Length:", "555"},
+		{"Idle Processes:", "666"},
+		{"Active Processes:", "777"},
+		{"Total Processes:", "888"},
+		{"Max active processes:", "999"},
+		{"Max children reached:", "1010"},
+		{"Slow requests:", "1111"},
+	}
+
+	for _, row := range rows {
+		assert.Contains(t, got, row[0], "missing label")
+		assert.Contains(t, got, row[1], "missing value for %s", row[0])
+	}
+}
+
+func TestTableSeparatesConsecutivePools(t *testing.T) {
+	pm := phpfpm.PoolManager{Pools: []phpfpm.Pool{
+		{Address: "tcp://10.0.0.1:9000/status", Name: "first"},
+		{Address: "tcp://10.0.0.2:9000/status", Name: "second"},
+	}}
+
+	lines := strings.Split(table(pm).String(), "\n")
+
+	first, second := -1, -1
+	for i, line := range lines {
+		switch {
+		case strings.Contains(line, "10.0.0.1"):
+			first = i
+		case strings.Contains(line, "10.0.0.2"):
+			second = i
+		}
+	}
+
+	require.NotEqual(t, -1, first, "the first pool must be rendered")
+	require.Greater(t, second, first, "the second pool must follow the first")
+
+	separated := false
+	for _, line := range lines[first+1 : second] {
+		if strings.TrimSpace(line) == "" {
+			separated = true
+		}
+	}
+
+	assert.True(t, separated, "a blank row must separate one pool from the next")
+}
+
+func TestTableWrapsOverlongValues(t *testing.T) {
+	long := "tcp://" + strings.Repeat("a", 120) + ":9000/status"
+	pm := phpfpm.PoolManager{Pools: []phpfpm.Pool{{Address: long, Name: "www"}}}
+
+	got := table(pm).String()
+
+	assert.NotContains(t, got, long, "an overlong value must be wrapped, not printed on one line")
 }
 
 func TestRunWritesTheSpewDump(t *testing.T) {
