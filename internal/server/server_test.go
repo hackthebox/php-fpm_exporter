@@ -147,6 +147,25 @@ func TestServeExposesExporterMetricsOnTheConfiguredPath(t *testing.T) {
 	require.NoError(t, <-errs)
 }
 
+// The VM deployments hit this: a statically configured exporter used to publish
+// phpfpm_pod="" on every series, because the label set did not follow the
+// discovery mode.
+func TestServeOmitsThePodLabelForStaticTargets(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	baseURL, errs := serveInBackground(ctx, t, testConfig(t))
+
+	status, body := get(t, baseURL+"/metrics")
+
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, "phpfpm_up{", "sanity: the exporter's own series must be present")
+	assert.NotContains(t, body, "phpfpm_pod", "a static target has no pod name, so the label must not appear")
+
+	cancel()
+	require.NoError(t, <-errs)
+}
+
 func TestServeLinksToMetricsFromTheRoot(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

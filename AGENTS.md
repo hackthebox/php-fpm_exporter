@@ -76,10 +76,20 @@ to go through `UpdatePoolManager`, not reach in directly.
 
 ### Metric label contract
 
-`phpfpm/exporter.go` defines three label sets (`poolMetricLabels`, `processMetricLabels`,
-`processStateMetricLabels`) and a `*LabelValues` helper per set. Label names and order are a public
-contract: the Grafana dashboard in `grafana/` and downstream alerts key off them. `phpfpm_pod` is an
-HTB addition and is present but empty for statically configured pools.
+`phpfpm/exporter.go` defines two families of label set, `*WithPod` and `*NoPod`, and an
+`Exporter.*LabelValues` method per set. Label names and order are a public contract that downstream
+alerts key off. The dashboard in `grafana/` selects on metric names only, not on these labels, so it
+is not the thing that constrains them.
+
+`phpfpm_pod` is an HTB addition and is emitted only under `--k8s.autotracking`, selected with
+`phpfpm.WithPodLabel()` at `NewExporter`. Static pools have no pod name, so the label is absent rather
+than empty; Prometheus treats an empty label value as equivalent to an absent one, so emitting it was
+pure noise on VM deployments. **The choice is per exporter, never per pool**: client_golang refuses two
+descriptors that share a metric name but disagree on label names, so a mixed process cannot exist. That
+is safe because `server` runs in exactly one discovery mode.
+
+The label cannot be replaced by Prometheus relabeling in HTB's topology: one exporter per namespace
+fans out to many pods, so the scrape target is the exporter and Prometheus never sees the pod.
 
 ## CI and release
 

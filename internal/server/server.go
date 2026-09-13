@@ -118,8 +118,14 @@ func newExporter(ctx context.Context, cfg Config) *phpfpm.Exporter {
 		ScrapeTimeout: cfg.ScrapeTimeout,
 	}
 
-	// Initialize the Exporter before any dynamic or static setup
-	exporter := phpfpm.NewExporter(pm)
+	// Initialize the Exporter before any dynamic or static setup. Only discovered
+	// pods have a name to put in phpfpm_pod, so static targets omit the label.
+	var opts []phpfpm.Option
+	if cfg.K8sAutoTracking {
+		opts = append(opts, phpfpm.WithPodLabel())
+	}
+
+	exporter := phpfpm.NewExporter(pm, opts...)
 	exporter.CountProcessState = cfg.FixProcessCount
 
 	if cfg.FixProcessCount {
