@@ -22,9 +22,11 @@ a Prometheus exporter that talks FastCGI directly to PHP-FPM's `/status` page. N
 
 ## Commands
 
-Go toolchain is pinned by `mise.toml`; `mise install` before anything else. Note CI resolves Go from the
-`go` directive in `go.mod` (`go-version-file: go.mod`), which trails the mise pin. A change that needs a
-newer language version has to move `go.mod`, not just `mise.toml`.
+Go toolchain is pinned by `mise.toml`; `mise install` before anything else. Three places name the Go
+version and they are kept identical: `mise.toml` (local), the `go` directive in `go.mod` (what CI resolves,
+via `go-version-file: go.mod`, and therefore what the released binary is built with), and the builder stage
+in `Dockerfile`. Moving one alone either has no effect on CI or leaves the ECR image on an older stdlib,
+which is what Grype reports.
 
 ```bash
 make test          # go test -short ./...  (no test reads testing.Short, so this is the full unit suite)
@@ -91,7 +93,8 @@ Workflows in `.github/workflows/`, all actions pinned by SHA:
   This is the image the HTB clusters actually run, and it is a separate build from the goreleaser one.
 
 `Dockerfile` (ECR path) and `Dockerfile.goreleaser` (public path) are both live. A build change usually
-needs both.
+needs both. Keep every base image a literal `FROM image:tag`: Dependabot's docker ecosystem parses those
+and cannot resolve a tag built from an `ARG`, so an indirected pin is one it will silently never update.
 
 ## Gotchas
 
