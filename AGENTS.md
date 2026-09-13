@@ -41,13 +41,20 @@ go run . server --log.level=debug                # run locally against 127.0.0.1
 
 ## Architecture
 
-`main.go` injects version/commit/date (goreleaser ldflags) and calls `cmd.Execute()`. Everything else is
-two packages:
+`main.go` injects version/commit/date (goreleaser ldflags) and calls `cmd.Execute()`.
+
+**`cmd/` is wiring only.** Anything with logic lives under `internal/`, where it can be tested; a command
+body that grows past building a config and mapping an error to an exit code belongs there instead.
 
 - `cmd/` — cobra CLI. `root.go` owns logging, viper config, and `mapEnvVars`, which is the only place
   env-var-to-flag mapping happens (viper's `BindEnv` is deliberately not used; see the comment in
   `cmd/server.go`). Adding a flag means adding it to the `envs` map too, and to the options table in
   `README.md`. Three commands: `get` (one-shot dump), `server` (Prometheus endpoint), `version`.
+- `internal/server/` — the `server` command's body. Takes its registry, logger and listener as
+  dependencies, so the endpoint, both discovery modes and the shutdown path are testable.
+- `internal/get/` — the `get` command's body. `Run(cfg, w io.Writer) error` writes the chosen format to an
+  injected writer, so each format can be asserted. A scrape failure is returned but does not suppress the
+  output; `cmd/get.go` turns it into a non-zero exit code.
 - `phpfpm/` — the library. `PoolManager` holds a slice of `Pool` (one per scrape URI); `Exporter`
   implements `prometheus.Collector` and calls `PoolManager.Update()` on every scrape, fanning out one
   goroutine per pool.
@@ -133,10 +140,5 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
   hipages/php-fpm_exporter#322.
 - `log` in `phpfpm` defaults to a discarding logger and `SetLogger` ignores nil, because it is a package
   global that a library caller need never set.
-- **Known follow-up: `cmd/get.go` still holds logic.** `cmd` should be flag parsing and wiring, with anything
-  testable living in `internal/` (that is what `internal/server` is). `get`'s cobra `Run` closure still builds
-  the PoolManager and switches over the json/text/spew output formats, none of it reachable from a test. The
-  shape to copy is `internal/server`: a `Run(cfg, w io.Writer) error` with the output written to an injected
-  writer. Tracked in hackthebox/php-fpm_exporter#25.
 - `PoolManager.Update` returns the joined per-pool scrape errors. `Pool.error` already logs each one, so
   callers should not log the aggregate again; `cmd/get.go` turns it into a non-zero exit code.
