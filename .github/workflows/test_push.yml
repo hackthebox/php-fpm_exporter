@@ -91,7 +91,10 @@ jobs:
         acs-report-enable: true
         fail-build: false
 
+    # Must match the category in test_pr.yml, or a PR's scan and master's scan
+    # are two unrelated configurations and code scanning cannot diff them.
     - name: Upload Anchore scan SARIF report
       uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       with:
         sarif_file: ${{ steps.scan.outputs.sarif }}
+        category: image-scan
