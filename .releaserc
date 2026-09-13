@@ -1,5 +1,8 @@
 ---
-repositoryUrl: https://github.com/hipages/php-fpm_exporter
+# This fork's own repo, not hipages/php-fpm_exporter. Pointed upstream,
+# semantic-release compared this master against upstream's, decided it was
+# behind and published nothing, so every scheduled run tagged nothing.
+repositoryUrl: https://github.com/hackthebox/php-fpm_exporter
 verifyConditions: ['@semantic-release/github']
 prepare: []
 publish: ['@semantic-release/github']

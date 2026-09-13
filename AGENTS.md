@@ -100,6 +100,12 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
 
 - `test/e2e.bats` asserts on metric lines that predate the `phpfpm_pod` label and nothing in CI runs bats,
   so the e2e suite is not a gate and its assertions may not match current output. Check before trusting it.
-- `.releaserc` still points `repositoryUrl` at the upstream hipages repo, and several `README.md` badges do
-  too. Intentional so far, but it means release metadata is not a reliable source for "where does this live".
+- `README.md` badges still point at the upstream hipages repo, so they are not a reliable source for "where
+  does this live". `.releaserc` used to as well, which silently disabled releases: semantic-release compared
+  this `master` against upstream's, found it behind and published nothing.
+- **Releases have never been cut by the `Release` workflow.** Every tag so far was pushed by hand. Two
+  things still block the automated path, both needing repository secrets: the goreleaser job has no
+  `DOCKER_USER`/`DOCKER_PASS` and dies at the Docker Hub login, and a tag pushed by semantic-release under
+  the default `GITHUB_TOKEN` does not trigger `build-and-push.yml`, so the ECR image the clusters run would
+  never be built. A tag pushed by a human does trigger it.
 - The repo has no `.crap-gated` marker, so the touchstone per-function gate does not apply here.
