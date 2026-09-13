@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -364,6 +365,40 @@ func TestNewExporterAddsEveryStaticScrapeURI(t *testing.T) {
 	assert.Equal(t, "tcp://127.0.0.2:1/status", exporter.PoolManager.Pools[1].Address)
 	assert.Empty(t, exporter.PoolManager.Pools[0].Pod, "statically configured pools carry no pod name")
 	assert.Equal(t, cfg.ScrapeTimeout, exporter.PoolManager.ScrapeTimeout)
+}
+
+// The label set has to follow the discovery mode in both directions: static
+// targets must not carry an empty phpfpm_pod, and auto-tracked ones must not
+// silently lose the label that identifies which pod a series came from.
+func TestNewExporterMatchesThePodLabelToTheDiscoveryMode(t *testing.T) {
+	tests := []struct {
+		name         string
+		autoTracking bool
+		wantPodLabel bool
+	}{
+		{name: "static targets", autoTracking: false, wantPodLabel: false},
+		{name: "kubernetes auto-tracking", autoTracking: true, wantPodLabel: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.K8sAutoTracking = tt.autoTracking
+
+			descs := make(chan *prometheus.Desc, 32)
+			newExporter(t.Context(), cfg).Describe(descs)
+			close(descs)
+
+			count := 0
+
+			for desc := range descs {
+				count++
+				assert.Equal(t, tt.wantPodLabel, strings.Contains(desc.String(), "phpfpm_pod"), desc.String())
+			}
+
+			assert.NotZero(t, count, "sanity: the exporter must describe some metrics")
+		})
+	}
 }
 
 // The two discovery modes are mutually exclusive: with auto-tracking on, the
