@@ -94,8 +94,10 @@ func initLogger() {
 
 	lvl, err := logrus.ParseLevel(logLevel)
 	if err != nil {
+		// Falling back beats refusing to start: an unusable log level is no
+		// reason to take a running exporter's metrics away.
 		lvl = logrus.InfoLevel
-		log.Fatalf("Could not set log level to '%v'.", logLevel)
+		log.Errorf("Could not set log level to '%v', falling back to '%v'.", logLevel, lvl)
 	}
 
 	log.SetLevel(lvl)

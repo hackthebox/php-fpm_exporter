@@ -226,7 +226,7 @@ func TestInitialPodEnlistingAddsOnlyRunningPodsWithAnIP(t *testing.T) {
 	pm := newPoolManager()
 	exporter := NewExporter(pm)
 
-	resourceVersion, err := pm.initialPodEnlisting(exporter, &v1.PodList{
+	resourceVersion := pm.initialPodEnlisting(exporter, &v1.PodList{
 		ListMeta: metav1.ListMeta{ResourceVersion: "42"},
 		Items: []v1.Pod{
 			*pod("running-with-ip", "10.0.0.1", v1.PodRunning),
@@ -235,7 +235,6 @@ func TestInitialPodEnlistingAddsOnlyRunningPodsWithAnIP(t *testing.T) {
 		},
 	}, "9000")
 
-	require.NoError(t, err)
 	assert.Equal(t, "42", resourceVersion, "the list's ResourceVersion seeds the retry watcher")
 
 	require.Len(t, pm.Pools, 1)

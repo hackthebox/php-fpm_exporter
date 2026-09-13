@@ -76,7 +76,7 @@ func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace st
 // initializePodEnlisting retrieves all pods matching the specified criteria and appends their URIs to the PoolManager's PodPhases.
 // This function is invoked prior to starting the NewRetryWatcher to capture the initial state of existing pods
 // and to obtain the ResourceVersion required for initializing the NewRetryWatcher.
-func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodList, port string) (string, error) {
+func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodList, port string) string {
 
 	log.Infof("Found %d pod(s) during initial list", len(podList.Items))
 	for _, pod := range podList.Items {
@@ -87,7 +87,7 @@ func (pm *PoolManager) initialPodEnlisting(exporter *Exporter, podList *v1.PodLi
 		uri := fmt.Sprintf(uriTemplate, pod.Status.PodIP, port)
 		pm.processPodAdded(exporter, &pod, uri)
 	}
-	return podList.ResourceVersion, nil
+	return podList.ResourceVersion
 }
 
 // handlePodRunning is used when a pod is in the Running phase and needs to be appended into the pool manager's PodPhases.
@@ -161,10 +161,7 @@ func (pm *PoolManager) discoverPods(ctx context.Context, exporter *Exporter, cli
 		return err
 	}
 
-	initialResourceVersion, err := pm.initialPodEnlisting(exporter, podList, port)
-	if err != nil {
-		return err
-	}
+	initialResourceVersion := pm.initialPodEnlisting(exporter, podList, port)
 
 	go pm.watchPodEvents(ctx, exporter, watcher, initialResourceVersion, port)
 	return nil

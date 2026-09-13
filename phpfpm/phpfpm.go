@@ -20,6 +20,7 @@ package phpfpm
 
 import (
 	"encoding/json"
+	"errors"
 	"net/url"
 	"regexp"
 	"slices"
@@ -47,6 +48,10 @@ func resolveTimeout(d time.Duration) time.Duration {
 	return d
 }
 
+// PoolProcessRequestCreating defines a child that is being created and is not
+// yet accepting requests.
+const PoolProcessRequestCreating string = "Creating"
+
 // PoolProcessRequestIdle defines a process that is idle.
 const PoolProcessRequestIdle string = "Idle"
 
@@ -66,7 +71,19 @@ const PoolProcessRequestInfo74 string = "Getting request information"
 // PoolProcessRequestEnding defines a process that is about to end.
 const PoolProcessRequestEnding string = "Ending"
 
-var log logger
+// log defaults to discarding rather than to nil: it is a package global that a
+// library caller need never set, and the first unrecognised process state used
+// to dereference it.
+var log logger = discardLogger{}
+
+type discardLogger struct{}
+
+func (discardLogger) Info(...any)           {}
+func (discardLogger) Infof(string, ...any)  {}
+func (discardLogger) Debug(...any)          {}
+func (discardLogger) Debugf(string, ...any) {}
+func (discardLogger) Error(...any)          {}
+func (discardLogger) Errorf(string, ...any) {}
 
 type logger interface {
 	Info(ar ...any)
@@ -151,12 +168,13 @@ func (pm *PoolManager) Update() (err error) {
 	timeout := pm.ScrapeTimeout
 	started := time.Now()
 
+	failures := make([]error, len(pm.Pools))
+
 	for idx := range pm.Pools {
 		p := &pm.Pools[idx]
 		wg.Go(func() {
-			if err := p.Update(timeout); err != nil {
-				log.Error(err)
-			}
+			// Pool.error already logs, so only record it here.
+			failures[idx] = p.Update(timeout)
 		})
 	}
 
@@ -164,7 +182,7 @@ func (pm *PoolManager) Update() (err error) {
 
 	log.Debugf("Updated %v pool(s) in %v", len(pm.Pools), time.Since(started))
 
-	return nil
+	return errors.Join(failures...)
 }
 
 // Remove will remove a pool from the pool manager based on the given URI.
@@ -251,18 +269,21 @@ func JSONResponseFixer(content []byte) []byte {
 func CountProcessState(processes []PoolProcess) (active int64, idle int64, total int64) {
 	for idx := range processes {
 		switch processes[idx].State {
-		case PoolProcessRequestRunning:
-			active++
 		case PoolProcessRequestIdle:
 			idle++
-		case PoolProcessRequestEnding:
-		case PoolProcessRequestFinishing:
-		case PoolProcessRequestInfo:
-		case PoolProcessRequestInfo74:
-		case PoolProcessRequestReadingHeaders:
+		case PoolProcessRequestCreating,
+			PoolProcessRequestReadingHeaders,
+			PoolProcessRequestInfo,
+			PoolProcessRequestInfo74,
+			PoolProcessRequestRunning,
+			PoolProcessRequestEnding,
+			PoolProcessRequestFinishing:
 			active++
 		default:
+			// Count it anyway. A stage this build does not know about is still a
+			// process FPM reported, and dropping it understates the total.
 			log.Errorf("Unknown process state '%v'", processes[idx].State)
+			active++
 		}
 	}
 
@@ -273,7 +294,8 @@ func CountProcessState(processes []PoolProcess) (active int64, idle int64, total
 func parseURL(rawurl string) (scheme string, address string, path string, err error) {
 	uri, err := url.Parse(rawurl)
 	if err != nil {
-		return uri.Scheme, uri.Host, uri.Path, err
+		// url.Parse returns a nil *URL alongside its error.
+		return "", "", "", err
 	}
 
 	scheme = uri.Scheme
@@ -332,7 +354,11 @@ func (rd *requestDuration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// SetLogger configures the used logger
+// SetLogger configures the used logger. A nil logger is ignored, so the package
+// global stays safe to call unconditionally.
 func SetLogger(logger logger) {
+	if logger == nil {
+		return
+	}
 	log = logger
 }

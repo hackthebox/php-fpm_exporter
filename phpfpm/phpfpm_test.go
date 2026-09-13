@@ -95,7 +95,7 @@ func TestPoolManagerUpdateScrapesEveryPool(t *testing.T) {
 	pm.Add("tcp://127.0.0.1:1/status", "")
 	pm.Add("tcp://127.0.0.1:1/status", "")
 
-	require.NoError(t, pm.Update(), "Update reports per-pool failures on the pools, not as a return value")
+	require.Error(t, pm.Update(), "every pool failed, so Update must say so")
 
 	for i := range pm.Pools {
 		assert.Error(t, pm.Pools[i].ScrapeError, "every pool must have been visited")
@@ -224,6 +224,11 @@ func TestRequestDurationMarshalJSONEmitsTheNumber(t *testing.T) {
 	}
 }
 
+// PHP-FPM counts a child as idle only while it is accepting; every other stage
+// is active (sapi/fpm/fpm/fpm_status.c). Counting Finishing, Ending and Info as
+// neither dropped them from the total, which is what made phpfpm_total_processes
+// sag towards the active count under load.
+// https://github.com/hipages/php-fpm_exporter/issues/322
 func TestCountProcessState(t *testing.T) {
 	processes := []PoolProcess{
 		{State: PoolProcessRequestIdle},
@@ -236,9 +241,134 @@ func TestCountProcessState(t *testing.T) {
 
 	active, idle, total := CountProcessState(processes)
 
-	assert.Equal(t, int64(2), active, "active processes")
+	assert.Equal(t, int64(5), active, "every non-idle stage is active")
 	assert.Equal(t, int64(1), idle, "idle processes")
-	assert.Equal(t, int64(3), total, "total processes")
+	assert.Equal(t, int64(6), total, "no reported process may go uncounted")
+}
+
+func TestCountProcessStateCountsEveryReportedProcess(t *testing.T) {
+	// Every stage fpm_request.c can report, plus the PHP 7.4 spelling.
+	states := []string{
+		PoolProcessRequestCreating,
+		PoolProcessRequestIdle,
+		PoolProcessRequestReadingHeaders,
+		PoolProcessRequestInfo,
+		PoolProcessRequestInfo74,
+		PoolProcessRequestRunning,
+		PoolProcessRequestEnding,
+		PoolProcessRequestFinishing,
+	}
+
+	processes := make([]PoolProcess, 0, len(states))
+	for _, state := range states {
+		processes = append(processes, PoolProcess{State: state})
+	}
+
+	active, idle, total := CountProcessState(processes)
+
+	assert.Equal(t, int64(len(states)), total, "total must equal the processes FPM reported")
+	assert.Equal(t, int64(1), idle, "only Idle is idle")
+	assert.Equal(t, int64(len(states)-1), active)
+	assert.Equal(t, total, active+idle)
+}
+
+// https://github.com/hipages/php-fpm_exporter/issues/419
+func TestCountProcessStateKnowsTheCreatingStage(t *testing.T) {
+	logs := captureLogs(t)
+
+	active, idle, total := CountProcessState([]PoolProcess{{State: PoolProcessRequestCreating}})
+
+	assert.Equal(t, int64(1), active, "a child being created is not idle, so FPM counts it active")
+	assert.Zero(t, idle)
+	assert.Equal(t, int64(1), total)
+
+	close(logs)
+	for msg := range logs {
+		assert.NotContains(t, msg, "Unknown process state", "Creating is a documented FPM stage")
+	}
+}
+
+func TestCountProcessStateCountsUnknownStages(t *testing.T) {
+	logs := captureLogs(t)
+
+	active, idle, total := CountProcessState([]PoolProcess{{State: "Some Future Stage"}})
+
+	assert.Equal(t, int64(1), active, "an unrecognised stage still exists, so it must not vanish from the total")
+	assert.Zero(t, idle)
+	assert.Equal(t, int64(1), total)
+
+	close(logs)
+
+	logged := false
+	for msg := range logs {
+		if strings.Contains(msg, "Unknown process state 'Some Future Stage'") {
+			logged = true
+		}
+	}
+	assert.True(t, logged, "an unrecognised stage must still be reported")
+}
+
+// url.Parse returns a nil *URL alongside its error, so touching the result in
+// the error branch panics. It runs inside the scrape goroutine, so it took the
+// whole process down.
+func TestParseURLReturnsAnErrorRatherThanPanicking(t *testing.T) {
+	scheme, address, path, err := parseURL("tcp://127.0.0.1:90 00/status")
+
+	require.Error(t, err)
+	assert.Empty(t, scheme)
+	assert.Empty(t, address)
+	assert.Empty(t, path)
+}
+
+func TestPoolUpdateReportsAMalformedURI(t *testing.T) {
+	pool := Pool{Address: "tcp://127.0.0.1:90 00/status"}
+
+	err := pool.Update(time.Second)
+
+	require.Error(t, err)
+	assert.Equal(t, err, pool.ScrapeError)
+	assert.Equal(t, int64(1), pool.ScrapeFailures)
+}
+
+func TestPoolManagerUpdateReportsScrapeFailures(t *testing.T) {
+	pm := PoolManager{ScrapeTimeout: 50 * time.Millisecond}
+	pm.Add("tcp://127.0.0.1:1/status", "")
+
+	err := pm.Update()
+
+	require.Error(t, err, "a caller cannot otherwise tell that every target failed")
+	assert.ErrorIs(t, err, pm.Pools[0].ScrapeError)
+}
+
+func TestPoolManagerUpdateReturnsNilWhenNothingToDo(t *testing.T) {
+	pm := PoolManager{}
+
+	assert.NoError(t, pm.Update())
+}
+
+// discardLogger is what the package global starts as, so every method has to be
+// callable before a caller supplies a real logger.
+func TestDiscardLoggerAcceptsEveryLevel(t *testing.T) {
+	var l logger = discardLogger{}
+
+	assert.NotPanics(t, func() {
+		l.Info("info")
+		l.Infof("%s", "infof")
+		l.Debug("debug")
+		l.Debugf("%s", "debugf")
+		l.Error("error")
+		l.Errorf("%s", "errorf")
+	})
+}
+
+// The package logger is a global that library callers may never set. It used to
+// start out nil, so the first unrecognised process state panicked.
+func TestCountProcessStateWithoutALoggerSet(t *testing.T) {
+	SetLogger(nil)
+
+	assert.NotPanics(t, func() {
+		CountProcessState([]PoolProcess{{State: "Some Future Stage"}})
+	}, "a nil logger must be ignored rather than installed")
 }
 
 func TestResolveTimeout(t *testing.T) {
