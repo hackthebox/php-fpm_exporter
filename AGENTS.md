@@ -133,5 +133,10 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
   hipages/php-fpm_exporter#322.
 - `log` in `phpfpm` defaults to a discarding logger and `SetLogger` ignores nil, because it is a package
   global that a library caller need never set.
+- **Known follow-up: `cmd/get.go` still holds logic.** `cmd` should be flag parsing and wiring, with anything
+  testable living in `internal/` (that is what `internal/server` is). `get`'s cobra `Run` closure still builds
+  the PoolManager and switches over the json/text/spew output formats, none of it reachable from a test. The
+  shape to copy is `internal/server`: a `Run(cfg, w io.Writer) error` with the output written to an injected
+  writer. GitHub issues are disabled on this repo, so this note is the tracking record.
 - `PoolManager.Update` returns the joined per-pool scrape errors. `Pool.error` already logs each one, so
   callers should not log the aggregate again; `cmd/get.go` turns it into a non-zero exit code.
