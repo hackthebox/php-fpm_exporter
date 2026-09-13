@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -73,7 +74,7 @@ func TestRunWritesTheTextTable(t *testing.T) {
 func TestTableRendersEveryPoolField(t *testing.T) {
 	pm := phpfpm.PoolManager{Pools: []phpfpm.Pool{{
 		Address:             "tcp://10.0.0.1:9000/status",
-		Name:                "academy",
+		Name:                "example-pool",
 		StartSince:          111,
 		AcceptedConnections: 222,
 		ListenQueue:         333,
@@ -91,7 +92,7 @@ func TestTableRendersEveryPoolField(t *testing.T) {
 
 	rows := [][2]string{
 		{"Address:", "tcp://10.0.0.1:9000/status"},
-		{"Pool:", "academy"},
+		{"Pool:", "example-pool"},
 		{"Start time:", "Mon, 01 Jan 0001 00:00:00 +0000"},
 		{"Start since:", "111"},
 		{"Accepted connections:", "222"},
@@ -143,13 +144,50 @@ func TestTableSeparatesConsecutivePools(t *testing.T) {
 	assert.True(t, separated, "a blank row must separate one pool from the next")
 }
 
-func TestTableWrapsOverlongValues(t *testing.T) {
+// MaxColWidth caps a cell at 80 columns and uitable elides the remainder, so a
+// scrape URI longer than that is shown truncated. Worth knowing before reading a
+// long unix socket path out of `get --out text`.
+func TestTableTruncatesOverlongValues(t *testing.T) {
 	long := "tcp://" + strings.Repeat("a", 120) + ":9000/status"
 	pm := phpfpm.PoolManager{Pools: []phpfpm.Pool{{Address: long, Name: "www"}}}
 
 	got := table(pm).String()
 
-	assert.NotContains(t, got, long, "an overlong value must be wrapped, not printed on one line")
+	assert.NotContains(t, got, long, "an overlong value is not printed in full")
+	assert.Contains(t, got, "...", "the elision is what tells the reader it was cut")
+
+	for _, line := range strings.Split(got, "\n") {
+		assert.LessOrEqual(t, len(line), 110, "no rendered line may run away: %q", line)
+	}
+}
+
+// A configured timeout has to reach the scrape. Dropping it falls back to the
+// package default, which is an order of magnitude longer.
+func TestRunHonoursTheConfiguredScrapeTimeout(t *testing.T) {
+	stalled, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stalled.Close() })
+
+	// Accept but never reply, so only the deadline can end the scrape.
+	go func() {
+		conn, err := stalled.Accept()
+		if err != nil {
+			return
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+	}()
+
+	cfg := testConfig()
+	cfg.ScrapeURIs = []string{"tcp://" + stalled.Addr().String() + "/status"}
+	cfg.ScrapeTimeout = 200 * time.Millisecond
+
+	started := time.Now()
+	err = Run(cfg, io.Discard)
+	elapsed := time.Since(started)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, 2*time.Second,
+		"the configured timeout must be used, not the much longer package default")
 }
 
 func TestRunWritesTheSpewDump(t *testing.T) {
