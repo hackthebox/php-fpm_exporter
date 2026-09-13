@@ -25,7 +25,7 @@ type customWatcher struct {
 
 // newWatcher creates and returns a new instance of customWatcher.
 // It is used to initialize the watcher with a Kubernetes clientset, a namespace, and a label selector for filtering the pods to be monitored.
-func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels string) cache.Watcher {
+func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels string) cache.WatcherWithContext {
 	return &customWatcher{
 		clientset:     clientset,
 		namespace:     namespace,
@@ -33,18 +33,15 @@ func newWatcher(clientset *kubernetes.Clientset, namespace string, podLabels str
 	}
 }
 
-// Watch initiates a new watch session for Pods by establishing a connection to the Kubernetes API.
-// This function is used as part of the NewRetryWatcher setup, which ensures a resilient connection.
-// If the connection to the API is interrupted, the NewRetryWatcher will automatically attempt to re-establish it,
+// WatchWithContext initiates a new watch session for Pods by establishing a connection to the Kubernetes API.
+// This function is used as part of the NewRetryWatcherWithContext setup, which ensures a resilient connection.
+// If the connection to the API is interrupted, the NewRetryWatcherWithContext will automatically attempt to re-establish it,
 // providing continuous monitoring of pod events. This approach is ideal for maintaining reliable event streaming,
 // especially in cases of network instability or API server disruptions.
-func (c *customWatcher) Watch(options metav1.ListOptions) (apiWatch.Interface, error) {
+// Cancelling ctx ends the watch, which is how server shutdown stops pod discovery.
+func (c *customWatcher) WatchWithContext(ctx context.Context, options metav1.ListOptions) (apiWatch.Interface, error) {
 	options.LabelSelector = c.labelSelector
-	ns := c.namespace
-	if ns == "" {
-		ns = metav1.NamespaceAll
-	}
-	return c.clientset.CoreV1().Pods(c.namespace).Watch(context.TODO(), options)
+	return c.clientset.CoreV1().Pods(c.namespace).Watch(ctx, options)
 }
 
 // k8sGetClient returns a Kubernetes clientset to interact with the cluster.
@@ -65,11 +62,11 @@ func k8sGetClient() (*kubernetes.Clientset, error) {
 }
 
 // listPods retrieves the initial list of pods that match the specified label criteria and namespace.
-func listPods(clientset *kubernetes.Clientset, namespace string, podLabels string) (*v1.PodList, error) {
+func listPods(ctx context.Context, clientset *kubernetes.Clientset, namespace string, podLabels string) (*v1.PodList, error) {
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
 	}
-	podList, err := clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: podLabels})
+	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: podLabels})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pods: %w", err)
 	}
@@ -142,23 +139,34 @@ func (pm *PoolManager) processPodDeleted(exporter *Exporter, pod *v1.Pod, uri st
 
 // DiscoverPods begins by listing the pods that match the specified labels within the given namespace.
 // It then starts a watch session in a separate goroutine.
-// The list operation is performed first to retrieve the initial ResourceVersion, which is required to initialize a NewRetryWatcher.
-func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLabels string, port string) error {
+// The list operation is performed first to retrieve the initial ResourceVersion, which is required to initialize a NewRetryWatcherWithContext.
+func (pm *PoolManager) DiscoverPods(ctx context.Context, exporter *Exporter, namespace string, podLabels string, port string) error {
 	// Get the Kubernetes client
 	clientset, err := k8sGetClient()
 	if err != nil {
 		return err
 	}
 
+	return pm.discoverPods(ctx, exporter, clientset, namespace, podLabels, port)
+}
+
+// discoverPods is DiscoverPods with the client supplied, so the discovery flow
+// can be exercised against a test API server. k8sGetClient needs in-cluster
+// config and so cannot run outside a pod.
+func (pm *PoolManager) discoverPods(ctx context.Context, exporter *Exporter, clientset *kubernetes.Clientset, namespace string, podLabels string, port string) error {
 	watcher := newWatcher(clientset, namespace, podLabels)
 
-	podList, err := listPods(clientset, namespace, podLabels)
+	podList, err := listPods(ctx, clientset, namespace, podLabels)
+	if err != nil {
+		return err
+	}
+
 	initialResourceVersion, err := pm.initialPodEnlisting(exporter, podList, port)
 	if err != nil {
 		return err
 	}
 
-	go pm.watchPodEvents(exporter, watcher, initialResourceVersion, port)
+	go pm.watchPodEvents(ctx, exporter, watcher, initialResourceVersion, port)
 	return nil
 }
 
@@ -167,8 +175,8 @@ func (pm *PoolManager) DiscoverPods(exporter *Exporter, namespace string, podLab
 // - For "modified" events, it verifies if the pod is in the running state before appending its URI to the pool manager.
 // - For "deleted" events, the pod's URI is removed from the pool manager's PodPhases.
 // Note: There is an unresolved issue with timeout errors when a pod is deleted, which requires further investigation and handling.
-func (pm *PoolManager) watchPodEvents(exporter *Exporter, watcher cache.Watcher, resourceVersion string, port string) {
-	retryWatcher, err := watch.NewRetryWatcher(resourceVersion, watcher)
+func (pm *PoolManager) watchPodEvents(ctx context.Context, exporter *Exporter, watcher cache.WatcherWithContext, resourceVersion string, port string) {
+	retryWatcher, err := watch.NewRetryWatcherWithContext(ctx, resourceVersion, watcher)
 	if err != nil {
 		log.Errorf("Failed to create Retry Watcher: %v", err)
 		return

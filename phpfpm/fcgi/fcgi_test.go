@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,41 @@ func TestEncodeParams(t *testing.T) {
 	// Keys are emitted sorted for deterministic output.
 	got := encodeParams(map[string]string{"C": "DD", "A": "B"})
 	want := []byte{1, 1, 'A', 'B', 1, 2, 'C', 'D', 'D'}
+	assert.Equal(t, want, got)
+}
+
+// Map iteration order is randomised, so two keys leave an unsorted encoder
+// passing about half the time. Enough keys to make that vanishingly unlikely,
+// repeated so a single lucky ordering cannot carry the test.
+func TestEncodeParamsOrdersKeysDeterministically(t *testing.T) {
+	params := map[string]string{}
+	for _, k := range []string{"H", "B", "F", "A", "G", "C", "E", "D"} {
+		params[k] = "v"
+	}
+
+	var want []byte
+	for _, k := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+		want = append(want, 1, 1, k[0], 'v')
+	}
+
+	for range 32 {
+		assert.Equal(t, want, encodeParams(params))
+	}
+}
+
+func TestEncodeParamsIsEmptyForNoParams(t *testing.T) {
+	assert.Empty(t, encodeParams(map[string]string{}))
+	assert.Empty(t, encodeParams(nil))
+}
+
+// A PHP-FPM status query carries a QUERY_STRING that can exceed the one-byte
+// length limit, so both the key and the value must go through encodeLength.
+func TestEncodeParamsUsesFourByteLengthsForLongValues(t *testing.T) {
+	value := strings.Repeat("x", 200)
+
+	got := encodeParams(map[string]string{"K": value})
+
+	want := append([]byte{1, 0x80, 0x00, 0x00, 0xC8, 'K'}, value...)
 	assert.Equal(t, want, got)
 }
 
@@ -103,6 +139,41 @@ func TestStripCGIBody(t *testing.T) {
 	in := []byte("Content-type: application/json\r\n\r\n{\"pool\":\"www\"}")
 	assert.Equal(t, []byte(`{"pool":"www"}`), stripCGIBody(in))
 	assert.Equal(t, []byte("nobody"), stripCGIBody([]byte("nobody")), "no header separator returns input unchanged")
+}
+
+func TestStripCGIBodyBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "only the first separator splits",
+			// A JSON body can contain \r\n\r\n; splitting on a later one would
+			// truncate it.
+			in:   "Content-type: text/plain\r\n\r\nfirst\r\n\r\nsecond",
+			want: "first\r\n\r\nsecond",
+		},
+		{name: "no headers", in: "\r\n\r\n{}", want: "{}"},
+		{name: "empty body", in: "Status: 200\r\n\r\n", want: ""},
+		{name: "empty input", in: "", want: ""},
+		{
+			name: "truncated separator is not a separator",
+			in:   "Status: 200\r\n\r",
+			want: "Status: 200\r\n\r",
+		},
+		{
+			name: "bare newlines are not a separator",
+			in:   "Status: 200\n\n{}",
+			want: "Status: 200\n\n{}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, string(stripCGIBody([]byte(tt.in))))
+		})
+	}
 }
 
 // fakeFPM listens and replies with a canned FastCGI CGI response, then closes.

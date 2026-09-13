@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,12 +70,12 @@ const PoolProcessRequestEnding string = "Ending"
 var log logger
 
 type logger interface {
-	Info(ar ...interface{})
-	Infof(string, ...interface{})
-	Debug(ar ...interface{})
-	Debugf(string, ...interface{})
-	Error(ar ...interface{})
-	Errorf(string, ...interface{})
+	Info(ar ...any)
+	Infof(string, ...any)
+	Debug(ar ...any)
+	Debugf(string, ...any)
+	Error(ar ...any)
+	Errorf(string, ...any)
 }
 
 // PoolManager manages all configured Pools
@@ -152,47 +153,39 @@ func (pm *PoolManager) Update() (err error) {
 	started := time.Now()
 
 	for idx := range pm.Pools {
-		wg.Add(1)
-		go func(p *Pool) {
-			defer wg.Done()
+		p := &pm.Pools[idx]
+		wg.Go(func() {
 			if err := p.Update(timeout); err != nil {
 				log.Error(err)
 			}
-		}(&pm.Pools[idx])
+		})
 	}
 
 	wg.Wait()
 
-	ended := time.Now()
-
-	log.Debugf("Updated %v pool(s) in %v", len(pm.Pools), ended.Sub(started))
+	log.Debugf("Updated %v pool(s) in %v", len(pm.Pools), time.Since(started))
 
 	return nil
 }
 
 // Remove will remove a pool from the pool manager based on the given URI.
+//
+// The removal is deliberately not concurrent: it is a single slice splice, and
+// spawning a goroutine per match raced the loop's own read of pm.Pools. Because
+// range fixes its bound at loop entry, a concurrent shrink also indexed past
+// len and panicked.
 func (pm *PoolManager) Remove(exporter *Exporter, uri string) {
-	wg := &sync.WaitGroup{}
-
 	started := time.Now()
 
-	for idx := range pm.Pools {
-		if pm.Pools[idx].Address == uri {
-			wg.Add(1)
-			go func(i int) {
-				defer wg.Done()
-
-				// Remove the pool by updating the Pools slice
-				log.Debugf("Removing pool: %s", uri)
-				pm.Pools = append(pm.Pools[:i], pm.Pools[i+1:]...)
-			}(idx)
+	pm.Pools = slices.DeleteFunc(pm.Pools, func(p Pool) bool {
+		if p.Address != uri {
+			return false
 		}
-	}
+		log.Debugf("Removing pool: %s", uri)
+		return true
+	})
 
-	wg.Wait()
-
-	ended := time.Now()
-	log.Debugf("Removed pools in %v", ended.Sub(started))
+	log.Debugf("Removed pools in %v", time.Since(started))
 	exporter.UpdatePoolManager(*pm)
 }
 

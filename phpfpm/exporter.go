@@ -15,7 +15,7 @@
 package phpfpm
 
 import (
-	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -236,7 +236,7 @@ func (e *Exporter) collectPools(ch chan<- prometheus.Metric, pools []Pool) {
 		ch <- prometheus.MustNewConstMetric(e.slowRequests, prometheus.CounterValue, float64(pool.SlowRequests), poolValues...)
 
 		for childNumber, process := range pool.Processes {
-			childName := fmt.Sprintf("%d", childNumber)
+			childName := strconv.Itoa(childNumber)
 			processValues := processLabelValues(pool, childName)
 
 			states := map[string]int{
