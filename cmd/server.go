@@ -15,17 +15,14 @@ package cmd
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/hackthebox/php-fpm_exporter/phpfpm"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
-	v1 "k8s.io/api/core/v1"
+
+	"github.com/hackthebox/php-fpm_exporter/internal/server"
 )
 
 // Configuration variables
@@ -59,88 +56,24 @@ to quickly create a Cobra application.`,
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		pm := phpfpm.PoolManager{
-			PodPhases: make(map[string]v1.PodPhase),
-		}
-		pm.ScrapeTimeout = scrapeTimeout
-		// Initialize the Exporter before any dynamic or static setup
-		exporter := phpfpm.NewExporter(pm)
-
-		// Enable dynamic pod tracking if the flag is set
-		if k8sAutoTracking {
-			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
-
-			go func() {
-				if err := pm.DiscoverPods(ctx, exporter, namespace, podLabels, port); err != nil {
-					log.Error(err)
-				}
-			}()
-
-		} else {
-			// Static scraping of predefined URIs
-			for _, uri := range scrapeURIs {
-				pm.Add(uri, "")
-			}
-			exporter.UpdatePoolManager(pm)
-		}
-
-		if fixProcessCount {
-			log.Info("Idle/Active/Total Processes will be calculated by php-fpm_exporter.")
-			exporter.CountProcessState = true
-		}
-
-		prometheus.MustRegister(exporter)
-
-		srv := &http.Server{
-			Addr: listeningAddress,
-			// Good practice to set timeouts to avoid Slowloris attacks.
-			WriteTimeout: time.Second * 15,
-			ReadTimeout:  time.Second * 15,
-			IdleTimeout:  time.Second * 60,
-		}
-
-		http.Handle(metricsEndpoint, promhttp.Handler())
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			_, err := w.Write([]byte(`<html>
-			 <head><title>php-fpm_exporter</title></head>
-			 <body>
-			 <h1>php-fpm_exporter</h1>
-			 <p><a href='` + metricsEndpoint + `'>Metrics</a></p>
-			 </body>
-			 </html>`))
-
-			if err != nil {
-				log.Error()
-			}
+		err := server.Run(ctx, server.Config{
+			ListenAddress:   listeningAddress,
+			MetricsEndpoint: metricsEndpoint,
+			ScrapeURIs:      scrapeURIs,
+			ScrapeTimeout:   scrapeTimeout,
+			FixProcessCount: fixProcessCount,
+			K8sAutoTracking: k8sAutoTracking,
+			Namespace:       namespace,
+			PodLabels:       podLabels,
+			Port:            port,
+			ShutdownTimeout: 10 * time.Second,
+			Logger:          log,
 		})
-
-		// Run our server in a goroutine so that it doesn't block.
-		go func() {
-			if err := srv.ListenAndServe(); err != nil {
-				log.Error(err)
-			}
-		}()
-
-		// Block until we receive our signal.
-		<-ctx.Done()
-		// Stop reacting to further signals, and release the pod watcher, which
-		// takes ctx and would otherwise outlive the shutdown.
-		stop()
-
-		// Create a deadline to wait for.
-		wait := time.Second * 10
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), wait)
-		defer cancel()
-		// Doesn't block if no connections, but will otherwise wait
-		// until the timeout deadline.
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Fatal("Error during shutdown", err)
+		if err != nil {
+			log.Fatal("Error running server: ", err)
 		}
-		// Optionally, you could run srv.Shutdown in a goroutine and block on
-		// <-ctx.Done() if your application should wait for other services
-		// to finalize based on context cancellation.
+
 		log.Info("Shutting down")
-		os.Exit(0)
 	},
 }
 

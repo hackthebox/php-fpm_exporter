@@ -133,6 +133,37 @@ func TestPoolManagerRemoveDropsEveryMatchingPool(t *testing.T) {
 	assert.Equal(t, "php-fpm-2", pm.Pools[0].Pod)
 }
 
+// The debug log is how an operator sees which pools a pod deletion dropped.
+func TestPoolManagerRemoveLogsEveryRemoval(t *testing.T) {
+	logs := captureLogs(t)
+
+	pm := PoolManager{}
+	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-0")
+	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-1")
+	pm.Add("tcp://10.0.0.2:9000/status", "php-fpm-2")
+
+	pm.Remove(NewExporter(pm), "tcp://10.0.0.1:9000/status")
+	close(logs)
+
+	var removed []string
+	summaries := 0
+
+	for msg := range logs {
+		switch {
+		case strings.HasPrefix(msg, "Removing pool: "):
+			removed = append(removed, msg)
+		case strings.HasPrefix(msg, "Removed pools in "):
+			summaries++
+		}
+	}
+
+	assert.Equal(t, []string{
+		"Removing pool: tcp://10.0.0.1:9000/status",
+		"Removing pool: tcp://10.0.0.1:9000/status",
+	}, removed, "one line per removed pool, naming the URI")
+	assert.Equal(t, 1, summaries, "one summary line per Remove call")
+}
+
 func TestPoolManagerRemoveIgnoresUnknownURI(t *testing.T) {
 	pm := PoolManager{}
 	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-0")
