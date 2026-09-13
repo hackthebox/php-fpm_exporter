@@ -186,6 +186,45 @@ func TestServeShutsDownWhenTheContextIsCancelled(t *testing.T) {
 	assert.Error(t, err, "the listener must be closed after shutdown")
 }
 
+// Graceful shutdown must let an in-flight scrape finish. A scrape can take as
+// long as ScrapeTimeout, so a shutdown that does not wait truncates the
+// response Prometheus is reading.
+func TestServeWaitsForAnInFlightScrape(t *testing.T) {
+	stalled, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stalled.Close() })
+
+	// Accept but never reply, so the scrape runs until its own deadline.
+	go func() {
+		conn, err := stalled.Accept()
+		if err != nil {
+			return
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+	}()
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	cfg := testConfig(t)
+	cfg.ScrapeURIs = []string{"tcp://" + stalled.Addr().String() + "/status"}
+	cfg.ScrapeTimeout = 2 * time.Second
+
+	baseURL, errs := serveInBackground(ctx, t, cfg)
+
+	scraped := make(chan int, 1)
+	go func() {
+		status, _ := get(t, baseURL+"/metrics")
+		scraped <- status
+	}()
+
+	// Let the scrape get under way, then shut down while it is still running.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	require.NoError(t, <-errs, "shutdown must drain the in-flight request, not abandon it")
+	assert.Equal(t, http.StatusOK, <-scraped, "the in-flight scrape must still complete")
+}
+
 func TestServeReportsAListenerFailure(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
