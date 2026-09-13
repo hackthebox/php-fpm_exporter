@@ -3,7 +3,7 @@
 [![Test](https://github.com/hackthebox/php-fpm_exporter/actions/workflows/test.yml/badge.svg)](https://github.com/hackthebox/php-fpm_exporter/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hackthebox/php-fpm_exporter)](https://goreportcard.com/report/github.com/hackthebox/php-fpm_exporter)
 [![Go Reference](https://pkg.go.dev/badge/github.com/hackthebox/php-fpm_exporter.svg)](https://pkg.go.dev/github.com/hackthebox/php-fpm_exporter)
-[![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg?style=flat-square)](#contributors)
+[![All Contributors](https://img.shields.io/badge/all_contributors-14-orange.svg?style=flat-square)](#contributors)
 
 > ### This is a fork
 >
@@ -272,7 +272,10 @@ Before starting any work, please either comment on an existing issue, or file a 
 
 ## Contributors
 
-Thanks goes to these wonderful people ([emoji key](https://github.com/all-contributors/all-contributors#emoji-key)):
+Thanks goes to these wonderful people ([emoji key](https://github.com/all-contributors/all-contributors#emoji-key)).
+
+Most of this exporter was written before Hack The Box ever forked it. The people below built it, and the
+fork stands on their work.
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
@@ -292,6 +295,11 @@ Thanks goes to these wonderful people ([emoji key](https://github.com/all-contri
     <td align="center"><a href="https://github.com/danielocallaghan"><img src="https://avatars.githubusercontent.com/u/62488?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Daniel O'Callaghan</b></sub></a><br /><a href="https://github.com/hipages/php-fpm_exporter/commits?author=danielocallaghan" title="Code">💻</a></td>
     <td align="center"><a href="https://github.com/stchr"><img src="https://avatars.githubusercontent.com/u/166079?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Simon Stücher</b></sub></a><br /><a href="https://github.com/hipages/php-fpm_exporter/issues?q=author%3Astchr" title="Bug reports">🐛</a></td>
     <td align="center"><a href="https://sterba.dev"><img src="https://avatars.githubusercontent.com/u/48120735?v=4?s=100" width="100px;" alt=""/><br /><sub><b>André Sterba</b></sub></a><br /><a href="https://github.com/hipages/php-fpm_exporter/commits?author=andresterba" title="Code">💻</a></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="https://github.com/ClementineM12"><img src="https://avatars.githubusercontent.com/u/106354411?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Christina Moraiti</b></sub></a><br /><a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=ClementineM12" title="Code">💻</a> <a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=ClementineM12" title="Documentation">📖</a></td>
+    <td align="center"><a href="https://github.com/vlasopoulos"><img src="https://avatars.githubusercontent.com/u/1096466?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Vasilis Vlasopoulos</b></sub></a><br /><a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=vlasopoulos" title="Code">💻</a></td>
+    <td align="center"><a href="https://www.schizas.me/"><img src="https://avatars.githubusercontent.com/u/13113025?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Dimosthenis Schizas</b></sub></a><br /><a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=dimoschi" title="Code">💻</a> <a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=dimoschi" title="Documentation">📖</a> <a href="#infra-dimoschi" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#maintenance-dimoschi" title="Maintenance">🚧</a> <a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=dimoschi" title="Tests">⚠️</a></td>
   </tr>
 </table>
 
