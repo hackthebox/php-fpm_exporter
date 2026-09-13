@@ -156,8 +156,8 @@ func TestTableTruncatesOverlongValues(t *testing.T) {
 	assert.NotContains(t, got, long, "an overlong value is not printed in full")
 	assert.Contains(t, got, "...", "the elision is what tells the reader it was cut")
 
-	// Assert the cell is elided to exactly maxColWidth rather than restating the
-	// constant, so an off-by-one in either direction fails.
+	// Compare against a literal, not maxColWidth: asserting a constant against
+	// itself moves both sides together and can never fail.
 	var widest int
 	for _, line := range strings.Split(got, "\n") {
 		_, value, found := strings.Cut(line, "\t")
@@ -167,7 +167,7 @@ func TestTableTruncatesOverlongValues(t *testing.T) {
 		widest = max(widest, len(strings.TrimRight(value, " ")))
 	}
 
-	assert.Equal(t, maxColWidth, widest, "the widest cell must be capped at exactly maxColWidth")
+	assert.Equal(t, 80, widest, "a cell is elided at 80 columns")
 }
 
 // A configured timeout has to reach the scrape. Dropping it falls back to the
