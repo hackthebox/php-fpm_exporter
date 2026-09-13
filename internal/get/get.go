@@ -18,6 +18,9 @@ import (
 	"github.com/hackthebox/php-fpm_exporter/phpfpm"
 )
 
+// maxColWidth caps a rendered cell; uitable elides anything longer.
+const maxColWidth = 80
+
 // Config is the get command's settings, one field per CLI flag.
 type Config struct {
 	ScrapeURIs    []string
@@ -48,12 +51,7 @@ func Run(cfg Config, w io.Writer) error {
 func write(pm phpfpm.PoolManager, output string, w io.Writer) error {
 	switch output {
 	case "json":
-		content, err := json.Marshal(pm)
-		if err != nil {
-			return fmt.Errorf("cannot encode to JSON: %w", err)
-		}
-		_, err = w.Write(content)
-		return err
+		return json.NewEncoder(w).Encode(pm)
 	case "text":
 		_, err := fmt.Fprintln(w, table(pm))
 		return err
@@ -67,8 +65,7 @@ func write(pm phpfpm.PoolManager, output string, w io.Writer) error {
 
 func table(pm phpfpm.PoolManager) *uitable.Table {
 	t := uitable.New()
-	t.MaxColWidth = 80
-	t.Wrap = true
+	t.MaxColWidth = maxColWidth
 
 	for _, pool := range pm.Pools {
 		t.AddRow("Address:", pool.Address)
