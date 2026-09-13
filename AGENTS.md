@@ -100,6 +100,16 @@ and cannot resolve a tag built from an `ARG`, so an indirected pin is one it wil
 
 - `test/e2e.bats` asserts on metric lines that predate the `phpfpm_pod` label and nothing in CI runs bats,
   so the e2e suite is not a gate and its assertions may not match current output. Check before trusting it.
-- `.releaserc` still points `repositoryUrl` at the upstream hipages repo, and several `README.md` badges do
-  too. Intentional so far, but it means release metadata is not a reliable source for "where does this live".
+- `README.md` badges still point at the upstream hipages repo, so they are not a reliable source for "where
+  does this live". `.releaserc` used to as well, which silently disabled releases: semantic-release compared
+  this `master` against upstream's, found it behind and published nothing.
+- **Releases have never been cut by the `Release` workflow.** Every tag so far was pushed by hand. One thing
+  still blocks the automated path: a tag pushed by semantic-release under the default `GITHUB_TOKEN` does
+  not trigger `build-and-push.yml`, so the ECR image the clusters run would never be built. A tag pushed by
+  a human does trigger it, which is why that is the working path.
+- **This fork publishes images to GHCR only, never Docker Hub.** Pushing `php-fpm_exporter` to Docker Hub
+  belongs to upstream hipages. The release job therefore has no Docker Hub login, and `.goreleaser.yml`
+  carries no bare `hackthebox/php-fpm_exporter` image or manifest. The Anchore scan in `test_pr.yml` and
+  `test_push.yml` picks the built image with a `--filter=reference=` on the *ghcr.io* name; that filter
+  matches the repository name exactly, so it silently finds nothing if the image templates are renamed.
 - The repo has no `.crap-gated` marker, so the touchstone per-function gate does not apply here.
