@@ -204,7 +204,8 @@ func TestRunReportsAnUnbindableAddress(t *testing.T) {
 	err := Run(t.Context(), cfg)
 
 	require.Error(t, err, "a bind failure must surface rather than be logged and ignored")
-	assert.Contains(t, err.Error(), "99999")
+	assert.Contains(t, err.Error(), "failed to listen on 127.0.0.1:99999")
+	assert.NotNil(t, errors.Unwrap(err), "the underlying net error must stay reachable through the wrap")
 }
 
 func TestRunServesOnTheConfiguredAddress(t *testing.T) {
@@ -237,23 +238,58 @@ func TestRunServesOnTheConfiguredAddress(t *testing.T) {
 
 func TestNewExporterCountsProcessStateWhenConfigured(t *testing.T) {
 	tests := []struct {
-		name string
-		fix  bool
+		name    string
+		fix     bool
+		wantLog string
 	}{
-		{name: "php-fpm reports the counts", fix: false},
-		{name: "the exporter recounts", fix: true},
+		{name: "php-fpm reports the counts", fix: false, wantLog: ""},
+		{
+			name:    "the exporter recounts",
+			fix:     true,
+			wantLog: "Idle/Active/Total Processes will be calculated by php-fpm_exporter.",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+
 			cfg := testConfig(t)
 			cfg.FixProcessCount = tt.fix
+			cfg.Logger = logger
 
 			exporter := newExporter(t.Context(), cfg)
 
 			assert.Equal(t, tt.fix, exporter.CountProcessState)
+
+			if tt.wantLog == "" {
+				assert.Empty(t, hook.Entries, "the default counting mode is not worth announcing")
+				return
+			}
+
+			require.Len(t, hook.Entries, 1, "recounting changes the reported numbers, so it must be announced")
+			assert.Equal(t, tt.wantLog, hook.LastEntry().Message)
 		})
 	}
+}
+
+// Auto-tracking needs in-cluster config. Outside a pod the discovery goroutine
+// must report that rather than leaving the exporter silently empty.
+func TestNewExporterLogsAutoTrackingFailure(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+
+	cfg := testConfig(t)
+	cfg.K8sAutoTracking = true
+	cfg.Logger = logger
+
+	newExporter(t.Context(), cfg)
+
+	require.Eventually(t, func() bool {
+		return hook.LastEntry() != nil && hook.LastEntry().Level == logrus.ErrorLevel
+	}, 10*time.Second, 10*time.Millisecond, "the discovery failure must be logged")
+
+	assert.Contains(t, hook.LastEntry().Message, "in-cluster")
+	assert.Equal(t, "Kubernetes auto-tracking enabled. Watching for pod changes...", hook.Entries[0].Message)
 }
 
 func TestNewExporterAddsEveryStaticScrapeURI(t *testing.T) {
