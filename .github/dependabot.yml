@@ -11,8 +11,10 @@ updates:
     # semantic-release (.releaserc) decides the monthly release from commit
     # prefixes and only feat/fix/perf produce one, so a dependency bump landed
     # under the default `chore(deps)` never shipped a release of its own.
+    # `include: scope` appends Dependabot's own `(deps)`, so the prefix must not
+    # carry one or the subject comes out as `fix(deps)(deps):`.
     commit-message:
-      prefix: "fix(deps)"
+      prefix: "fix"
       include: "scope"
     groups:
       # k8s.io/api, k8s.io/apimachinery and k8s.io/client-go are only supported
@@ -41,7 +43,7 @@ updates:
       interval: "daily"
     # Base images ship inside the released artifact, same as Go dependencies.
     commit-message:
-      prefix: "fix(deps)"
+      prefix: "fix"
       include: "scope"
     # No security-updates group: Dependabot does not raise security updates for
     # the docker ecosystem, only version updates.
@@ -57,7 +59,7 @@ updates:
     # CI-only, nothing reaches the published binary or image, so these must not
     # trigger a release.
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "chore"
       include: "scope"
     groups:
       github-actions:
