@@ -250,9 +250,10 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	if err := e.PoolManager.Update(); err != nil {
-		log.Error(err)
-	}
+	// Pool.error logs each failure with its address, and a failed scrape is
+	// already visible as phpfpm_up 0 and phpfpm_scrape_failures, so logging the
+	// joined error here would just say it twice.
+	_ = e.PoolManager.Update()
 
 	e.collectPools(ch, e.PoolManager.Pools)
 }

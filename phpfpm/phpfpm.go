@@ -240,10 +240,13 @@ func (p *Pool) Update(timeout time.Duration) (err error) {
 	return nil
 }
 
+// error records a scrape failure on the pool and returns it. It deliberately
+// does not log: collectPools logs it with context on the server path, and the
+// get command surfaces it through the returned error, so logging here as well
+// produced two lines for every failed scrape.
 func (p *Pool) error(err error) error {
 	p.ScrapeError = err
 	p.ScrapeFailures++
-	log.Error(err)
 	return err
 }
 

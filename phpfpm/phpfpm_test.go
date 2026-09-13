@@ -51,11 +51,11 @@ func (testLogger) publish(format string, ar ...any) {
 	}
 }
 
-func (l testLogger) Info(...any)                     {}
+func (l testLogger) Info(ar ...any)                  { l.publish("%v", fmt.Sprint(ar...)) }
 func (l testLogger) Infof(format string, ar ...any)  { l.publish(format, ar...) }
-func (l testLogger) Debug(...any)                    {}
+func (l testLogger) Debug(ar ...any)                 { l.publish("%v", fmt.Sprint(ar...)) }
 func (l testLogger) Debugf(format string, ar ...any) { l.publish(format, ar...) }
-func (l testLogger) Error(...any)                    {}
+func (l testLogger) Error(ar ...any)                 { l.publish("%v", fmt.Sprint(ar...)) }
 func (l testLogger) Errorf(format string, ar ...any) { l.publish(format, ar...) }
 
 // captureLogs routes log messages to a channel for the duration of the test. The

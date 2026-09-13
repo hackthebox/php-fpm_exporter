@@ -3,6 +3,7 @@ package phpfpm
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
@@ -235,4 +236,35 @@ func assertMetricLabelValue(t *testing.T, labels []*dto.LabelPair, name string, 
 	}
 
 	t.Fatalf("label %q not found", name)
+}
+
+// Pool.error logs each failure, so the joined error must not be logged again:
+// a dead target would otherwise produce two identical lines per scrape.
+func TestExporterCollectLogsEachScrapeFailureOnce(t *testing.T) {
+	logs := captureLogs(t)
+
+	pm := PoolManager{ScrapeTimeout: 50 * time.Millisecond}
+	pm.Add("tcp://127.0.0.1:1/status", "")
+	exporter := NewExporter(pm)
+
+	ch := make(chan prometheus.Metric, 64)
+	go func() {
+		exporter.Collect(ch)
+		close(ch)
+	}()
+	for range ch { //nolint:revive // draining is the point
+	}
+
+	close(logs)
+
+	refused := 0
+	for msg := range logs {
+		if strings.Contains(msg, "connection refused") {
+			refused++
+			assert.Contains(t, msg, "Error scraping PHP-FPM",
+				"the surviving line is the one with context")
+		}
+	}
+
+	assert.Equal(t, 1, refused, "one line per failing pool, not one per layer that saw the error")
 }

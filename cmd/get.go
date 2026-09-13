@@ -14,15 +14,12 @@
 package cmd
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
-	"github.com/gosuri/uitable"
-	"github.com/hackthebox/php-fpm_exporter/phpfpm"
 	"github.com/spf13/cobra"
+
+	"github.com/hackthebox/php-fpm_exporter/internal/get"
 )
 
 // Configuration variables
@@ -40,58 +37,13 @@ var getCmd = &cobra.Command{
 * php-fpm_exporter get --phpfpm.scrape-uri 127.0.0.1:9000,127.0.0.1:9001,[...]
 `,
 	Run: func(cmd *cobra.Command, args []string) {
-		pm := phpfpm.PoolManager{}
-		pm.ScrapeTimeout = scrapeTimeout
-
-		for _, uri := range scrapeURIs {
-			pm.Add(uri, "")
-		}
-
-		// Report the scrape result through the exit code, but print what was
-		// collected first: a partial result is still worth having.
-		scrapeErr := pm.Update()
-
-		switch output {
-		case "json":
-			content, err := json.Marshal(pm)
-			if err != nil {
-				log.Fatal("Cannot encode to JSON ", err)
-			}
-			fmt.Print(string(content))
-		case "text":
-			table := uitable.New()
-			table.MaxColWidth = 80
-			table.Wrap = true
-
-			pools := pm.Pools
-
-			for _, pool := range pools {
-				table.AddRow("Address:", pool.Address)
-				table.AddRow("Pool:", pool.Name)
-				table.AddRow("Start time:", time.Time(pool.StartTime).Format(time.RFC1123Z))
-				table.AddRow("Start since:", pool.StartSince)
-				table.AddRow("Accepted connections:", pool.AcceptedConnections)
-				table.AddRow("Listen Queue:", pool.ListenQueue)
-				table.AddRow("Max Listen Queue:", pool.MaxListenQueue)
-				table.AddRow("Listen Queue Length:", pool.ListenQueueLength)
-				table.AddRow("Idle Processes:", pool.IdleProcesses)
-				table.AddRow("Active Processes:", pool.ActiveProcesses)
-				table.AddRow("Total Processes:", pool.TotalProcesses)
-				table.AddRow("Max active processes:", pool.MaxActiveProcesses)
-				table.AddRow("Max children reached:", pool.MaxChildrenReached)
-				table.AddRow("Slow requests:", pool.SlowRequests)
-				table.AddRow("")
-			}
-
-			fmt.Println(table)
-		case "spew":
-			spew.Dump(pm)
-		default:
-			log.Error("Output format not valid.")
-		}
-
-		if scrapeErr != nil {
-			log.Error("Could not update pool. ", scrapeErr)
+		err := get.Run(get.Config{
+			ScrapeURIs:    scrapeURIs,
+			ScrapeTimeout: scrapeTimeout,
+			Output:        output,
+		}, os.Stdout)
+		if err != nil {
+			log.Error(err)
 			os.Exit(1)
 		}
 	},
