@@ -54,6 +54,11 @@ to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Infof("Starting server on %v with path %v", listeningAddress, metricsEndpoint)
 
+		// We'll accept graceful shutdowns when quit via SIGINT (Ctrl+C) or SIGTERM
+		// SIGKILL, SIGQUIT will not be caught.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
 		pm := phpfpm.PoolManager{
 			PodPhases: make(map[string]v1.PodPhase),
 		}
@@ -66,7 +71,7 @@ to quickly create a Cobra application.`,
 			log.Info("Kubernetes auto-tracking enabled. Watching for pod changes...")
 
 			go func() {
-				if err := pm.DiscoverPods(exporter, namespace, podLabels, port); err != nil {
+				if err := pm.DiscoverPods(ctx, exporter, namespace, podLabels, port); err != nil {
 					log.Error(err)
 				}
 			}()
@@ -116,21 +121,19 @@ to quickly create a Cobra application.`,
 			}
 		}()
 
-		c := make(chan os.Signal, 1)
-		// We'll accept graceful shutdowns when quit via SIGINT (Ctrl+C) or SIGTERM
-		// SIGKILL, SIGQUIT will not be caught.
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
 		// Block until we receive our signal.
-		<-c
+		<-ctx.Done()
+		// Stop reacting to further signals, and release the pod watcher, which
+		// takes ctx and would otherwise outlive the shutdown.
+		stop()
 
 		// Create a deadline to wait for.
 		wait := time.Second * 10
-		ctx, cancel := context.WithTimeout(context.Background(), wait)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), wait)
 		defer cancel()
 		// Doesn't block if no connections, but will otherwise wait
 		// until the timeout deadline.
-		if err := srv.Shutdown(ctx); err != nil {
+		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Fatal("Error during shutdown", err)
 		}
 		// Optionally, you could run srv.Shutdown in a goroutine and block on

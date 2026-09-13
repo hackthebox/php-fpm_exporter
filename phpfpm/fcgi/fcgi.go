@@ -9,11 +9,13 @@
 package fcgi
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
+	"maps"
 	"net"
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -130,14 +132,8 @@ func readRecord(r io.Reader) (typ uint8, content []byte, err error) {
 }
 
 func encodeParams(params map[string]string) []byte {
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
 	var buf []byte
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(params)) {
 		v := params[k]
 		buf = append(buf, encodeLength(len(k))...)
 		buf = append(buf, encodeLength(len(v))...)
@@ -155,11 +151,8 @@ func encodeLength(n int) []byte {
 }
 
 func stripCGIBody(stdout []byte) []byte {
-	sep := []byte("\r\n\r\n")
-	for i := 0; i+len(sep) <= len(stdout); i++ {
-		if string(stdout[i:i+len(sep)]) == string(sep) {
-			return stdout[i+len(sep):]
-		}
+	if _, body, found := bytes.Cut(stdout, []byte("\r\n\r\n")); found {
+		return body
 	}
 	return stdout
 }

@@ -15,11 +15,134 @@ package phpfpm
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// TestMain installs the logger exactly once. SetLogger writes a package-global
+// that background watcher goroutines read, so calling it per test races with any
+// goroutine an earlier test left running.
+func TestMain(m *testing.M) {
+	SetLogger(testLogger{})
+	os.Exit(m.Run())
+}
+
+// logSink optionally receives formatted log messages. Swapping the sink rather
+// than the logger keeps the package-global write in TestMain.
+var logSink atomic.Pointer[chan string]
+
+type testLogger struct{}
+
+func (testLogger) publish(format string, ar ...any) {
+	ch := logSink.Load()
+	if ch == nil {
+		return
+	}
+	select {
+	case *ch <- fmt.Sprintf(format, ar...):
+	default:
+	}
+}
+
+func (l testLogger) Info(...any)                     {}
+func (l testLogger) Infof(format string, ar ...any)  { l.publish(format, ar...) }
+func (l testLogger) Debug(...any)                    {}
+func (l testLogger) Debugf(format string, ar ...any) { l.publish(format, ar...) }
+func (l testLogger) Error(...any)                    {}
+func (l testLogger) Errorf(format string, ar ...any) { l.publish(format, ar...) }
+
+// captureLogs routes log messages to a channel for the duration of the test. The
+// log is the only synchronisation point a test has with the watcher goroutine
+// that owns the PoolManager.
+func captureLogs(t *testing.T) chan string {
+	t.Helper()
+
+	ch := make(chan string, 256)
+	logSink.Store(&ch)
+	t.Cleanup(func() { logSink.Store(nil) })
+
+	return ch
+}
+
+// requireLogged waits for a message containing want, failing the test if the
+// goroutine never gets there.
+func requireLogged(t *testing.T, logs chan string, want string) {
+	t.Helper()
+
+	deadline := time.After(10 * time.Second)
+
+	for {
+		select {
+		case msg := <-logs:
+			if strings.Contains(msg, want) {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for a log message containing %q", want)
+		}
+	}
+}
+
+func TestPoolManagerUpdateScrapesEveryPool(t *testing.T) {
+	pm := PoolManager{ScrapeTimeout: 50 * time.Millisecond}
+	pm.Add("tcp://127.0.0.1:1/status", "")
+	pm.Add("tcp://127.0.0.1:1/status", "")
+
+	require.NoError(t, pm.Update(), "Update reports per-pool failures on the pools, not as a return value")
+
+	for i := range pm.Pools {
+		assert.Error(t, pm.Pools[i].ScrapeError, "every pool must have been visited")
+		assert.Equal(t, int64(1), pm.Pools[i].ScrapeFailures)
+	}
+}
+
+func TestPoolManagerRemoveDropsMatchingPool(t *testing.T) {
+	pm := PoolManager{}
+	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-0")
+	pm.Add("tcp://10.0.0.2:9000/status", "php-fpm-1")
+	exporter := NewExporter(pm)
+
+	pm.Remove(exporter, "tcp://10.0.0.1:9000/status")
+
+	require.Len(t, pm.Pools, 1)
+	assert.Equal(t, "tcp://10.0.0.2:9000/status", pm.Pools[0].Address)
+	assert.Equal(t, pm.Pools, exporter.PoolManager.Pools, "the exporter must see the removal")
+}
+
+// Two pods can briefly share a URI (a pod IP is reused after a fast reschedule).
+// Removal must drop every match, and must not read Pools while mutating it: the
+// range bound is fixed at loop entry, so a concurrent shrink indexes past len.
+func TestPoolManagerRemoveDropsEveryMatchingPool(t *testing.T) {
+	pm := PoolManager{}
+	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-0")
+	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-1")
+	pm.Add("tcp://10.0.0.2:9000/status", "php-fpm-2")
+	exporter := NewExporter(pm)
+
+	pm.Remove(exporter, "tcp://10.0.0.1:9000/status")
+
+	require.Len(t, pm.Pools, 1)
+	assert.Equal(t, "tcp://10.0.0.2:9000/status", pm.Pools[0].Address)
+	assert.Equal(t, "php-fpm-2", pm.Pools[0].Pod)
+}
+
+func TestPoolManagerRemoveIgnoresUnknownURI(t *testing.T) {
+	pm := PoolManager{}
+	pm.Add("tcp://10.0.0.1:9000/status", "php-fpm-0")
+	exporter := NewExporter(pm)
+
+	pm.Remove(exporter, "tcp://10.0.0.9:9000/status")
+
+	require.Len(t, pm.Pools, 1)
+	assert.Equal(t, "tcp://10.0.0.1:9000/status", pm.Pools[0].Address)
+}
 
 func TestCountProcessState(t *testing.T) {
 	processes := []PoolProcess{

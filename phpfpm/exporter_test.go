@@ -102,6 +102,40 @@ func TestExporterCollectPoolsIncludesPodLabel(t *testing.T) {
 	}
 }
 
+func TestExporterCollectPoolsNumbersChildrenByIndex(t *testing.T) {
+	exporter := NewExporter(PoolManager{})
+	exporter.CountProcessState = true
+
+	ch := make(chan prometheus.Metric, 64)
+	exporter.collectPools(ch, []Pool{
+		{
+			Address: "tcp://10.0.0.1:9000/status",
+			Name:    "www",
+			Processes: []PoolProcess{
+				{State: PoolProcessRequestIdle},
+				{State: PoolProcessRequestRunning},
+				{State: PoolProcessRequestIdle},
+			},
+		},
+	})
+	close(ch)
+
+	seen := map[string]bool{}
+
+	for metric := range ch {
+		dtoMetric := &dto.Metric{}
+		require.NoError(t, metric.Write(dtoMetric))
+
+		for _, label := range dtoMetric.GetLabel() {
+			if label.GetName() == "child" {
+				seen[label.GetValue()] = true
+			}
+		}
+	}
+
+	assert.Equal(t, map[string]bool{"0": true, "1": true, "2": true}, seen, "child is the decimal slice index")
+}
+
 func assertMetricLabelValue(t *testing.T, labels []*dto.LabelPair, name string, want string) {
 	t.Helper()
 
