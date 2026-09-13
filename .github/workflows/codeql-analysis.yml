@@ -33,10 +33,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'go' ]
-        # CodeQL supports [ 'cpp', 'csharp', 'go', 'java', 'javascript', 'python' ]
-        # Learn more:
-        # https://docs.github.com/en/free-pro-team@latest/github/finding-security-vulnerabilities-and-errors-in-your-code/configuring-code-scanning#changing-the-languages-that-are-analyzed
+        language: [ 'actions', 'go' ]
+        # 'actions' analyses the workflows themselves. This repository is public,
+        # so a fork PR is a real attack surface, and these are the queries that
+        # catch an untrusted checkout under pull_request_target or a job running
+        # with an unrestricted GITHUB_TOKEN.
 
     steps:
     - name: Checkout repository
