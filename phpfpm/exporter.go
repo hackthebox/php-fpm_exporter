@@ -25,22 +25,63 @@ const (
 	namespace = "phpfpm"
 )
 
-var (
-	poolMetricLabels         = []string{"pool", "phpfpm_pod", "scrape_uri"}
-	processMetricLabels      = []string{"pool", "phpfpm_pod", "child", "scrape_uri"}
-	processStateMetricLabels = []string{"pool", "phpfpm_pod", "child", "state", "scrape_uri"}
+// Metric label names. Their spelling and order are a public contract.
+const (
+	labelPool      = "pool"
+	labelPod       = "phpfpm_pod"
+	labelChild     = "child"
+	labelState     = "state"
+	labelScrapeURI = "scrape_uri"
 )
 
-func poolLabelValues(pool Pool) []string {
-	return []string{pool.Name, pool.Pod, pool.Address}
+var (
+	poolMetricLabelsWithPod         = []string{labelPool, labelPod, labelScrapeURI}
+	processMetricLabelsWithPod      = []string{labelPool, labelPod, labelChild, labelScrapeURI}
+	processStateMetricLabelsWithPod = []string{labelPool, labelPod, labelChild, labelState, labelScrapeURI}
+
+	// Label sets for statically configured targets, which have no pod name.
+	poolMetricLabelsNoPod         = []string{labelPool, labelScrapeURI}
+	processMetricLabelsNoPod      = []string{labelPool, labelChild, labelScrapeURI}
+	processStateMetricLabelsNoPod = []string{labelPool, labelChild, labelState, labelScrapeURI}
+)
+
+// Option configures an Exporter at construction. The metric label set is fixed
+// once a descriptor exists, so options cannot be applied afterwards.
+type Option func(*exporterOptions)
+
+type exporterOptions struct {
+	podLabel bool
 }
 
-func processLabelValues(pool Pool, child string) []string {
-	return []string{pool.Name, pool.Pod, child, pool.Address}
+// WithPodLabel adds the phpfpm_pod label to every metric. Only Kubernetes
+// auto-tracking populates it; a static target has no pod name, and Prometheus
+// treats an empty label value as equivalent to an absent one, so emitting
+// phpfpm_pod="" would be noise. The choice is per exporter rather than per pool
+// because client_golang rejects two descriptors that share a metric name but
+// disagree on label names.
+func WithPodLabel() Option {
+	return func(o *exporterOptions) { o.podLabel = true }
 }
 
-func processStateLabelValues(pool Pool, child string, state string) []string {
-	return []string{pool.Name, pool.Pod, child, state, pool.Address}
+func (e *Exporter) poolLabelValues(pool Pool) []string {
+	if e.podLabel {
+		return []string{pool.Name, pool.Pod, pool.Address}
+	}
+	return []string{pool.Name, pool.Address}
+}
+
+func (e *Exporter) processLabelValues(pool Pool, child string) []string {
+	if e.podLabel {
+		return []string{pool.Name, pool.Pod, child, pool.Address}
+	}
+	return []string{pool.Name, child, pool.Address}
+}
+
+func (e *Exporter) processStateLabelValues(pool Pool, child string, state string) []string {
+	if e.podLabel {
+		return []string{pool.Name, pool.Pod, child, state, pool.Address}
+	}
+	return []string{pool.Name, child, state, pool.Address}
 }
 
 // Exporter configures and exposes PHP-FPM metrics to Prometheus.
@@ -49,6 +90,8 @@ type Exporter struct {
 	PoolManager PoolManager
 
 	CountProcessState bool
+
+	podLabel bool
 
 	up                       *prometheus.Desc
 	scrapeFailues            *prometheus.Desc
@@ -71,11 +114,26 @@ type Exporter struct {
 }
 
 // NewExporter creates a new Exporter for a PoolManager and configures the necessary metrics.
-func NewExporter(pm PoolManager) *Exporter {
+// Pass WithPodLabel when the pools come from Kubernetes auto-tracking.
+func NewExporter(pm PoolManager, opts ...Option) *Exporter {
+	options := exporterOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	poolMetricLabels, processMetricLabels, processStateMetricLabels :=
+		poolMetricLabelsNoPod, processMetricLabelsNoPod, processStateMetricLabelsNoPod
+	if options.podLabel {
+		poolMetricLabels, processMetricLabels, processStateMetricLabels =
+			poolMetricLabelsWithPod, processMetricLabelsWithPod, processStateMetricLabelsWithPod
+	}
+
 	return &Exporter{
 		PoolManager: pm,
 
 		CountProcessState: false,
+
+		podLabel: options.podLabel,
 
 		up: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "up"),
@@ -201,7 +259,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 func (e *Exporter) collectPools(ch chan<- prometheus.Metric, pools []Pool) {
 	for _, pool := range pools {
-		poolValues := poolLabelValues(pool)
+		poolValues := e.poolLabelValues(pool)
 
 		ch <- prometheus.MustNewConstMetric(e.scrapeFailues, prometheus.CounterValue, float64(pool.ScrapeFailures), poolValues...)
 
@@ -237,7 +295,7 @@ func (e *Exporter) collectPools(ch chan<- prometheus.Metric, pools []Pool) {
 
 		for childNumber, process := range pool.Processes {
 			childName := strconv.Itoa(childNumber)
-			processValues := processLabelValues(pool, childName)
+			processValues := e.processLabelValues(pool, childName)
 
 			states := map[string]int{
 				PoolProcessRequestIdle:           0,
@@ -250,7 +308,7 @@ func (e *Exporter) collectPools(ch chan<- prometheus.Metric, pools []Pool) {
 			states[process.State]++
 
 			for stateName, inState := range states {
-				ch <- prometheus.MustNewConstMetric(e.processState, prometheus.GaugeValue, float64(inState), processStateLabelValues(pool, childName, stateName)...)
+				ch <- prometheus.MustNewConstMetric(e.processState, prometheus.GaugeValue, float64(inState), e.processStateLabelValues(pool, childName, stateName)...)
 			}
 			ch <- prometheus.MustNewConstMetric(e.processRequests, prometheus.CounterValue, float64(process.Requests), processValues...)
 			ch <- prometheus.MustNewConstMetric(e.processLastRequestMemory, prometheus.GaugeValue, float64(process.LastRequestMemory), processValues...)

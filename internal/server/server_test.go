@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +143,25 @@ func TestServeExposesExporterMetricsOnTheConfiguredPath(t *testing.T) {
 	status, body = get(t, baseURL+"/metrics")
 	assert.Equal(t, http.StatusOK, status)
 	assert.NotContains(t, body, "phpfpm_up", "only the configured path serves metrics")
+
+	cancel()
+	require.NoError(t, <-errs)
+}
+
+// The VM deployments hit this: a statically configured exporter used to publish
+// phpfpm_pod="" on every series, because the label set did not follow the
+// discovery mode.
+func TestServeOmitsThePodLabelForStaticTargets(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	baseURL, errs := serveInBackground(ctx, t, testConfig(t))
+
+	status, body := get(t, baseURL+"/metrics")
+
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, "phpfpm_up{", "sanity: the exporter's own series must be present")
+	assert.NotContains(t, body, "phpfpm_pod", "a static target has no pod name, so the label must not appear")
 
 	cancel()
 	require.NoError(t, <-errs)
@@ -345,6 +365,40 @@ func TestNewExporterAddsEveryStaticScrapeURI(t *testing.T) {
 	assert.Equal(t, "tcp://127.0.0.2:1/status", exporter.PoolManager.Pools[1].Address)
 	assert.Empty(t, exporter.PoolManager.Pools[0].Pod, "statically configured pools carry no pod name")
 	assert.Equal(t, cfg.ScrapeTimeout, exporter.PoolManager.ScrapeTimeout)
+}
+
+// The label set has to follow the discovery mode in both directions: static
+// targets must not carry an empty phpfpm_pod, and auto-tracked ones must not
+// silently lose the label that identifies which pod a series came from.
+func TestNewExporterMatchesThePodLabelToTheDiscoveryMode(t *testing.T) {
+	tests := []struct {
+		name         string
+		autoTracking bool
+		wantPodLabel bool
+	}{
+		{name: "static targets", autoTracking: false, wantPodLabel: false},
+		{name: "kubernetes auto-tracking", autoTracking: true, wantPodLabel: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.K8sAutoTracking = tt.autoTracking
+
+			descs := make(chan *prometheus.Desc, 32)
+			newExporter(t.Context(), cfg).Describe(descs)
+			close(descs)
+
+			count := 0
+
+			for desc := range descs {
+				count++
+				assert.Equal(t, tt.wantPodLabel, strings.Contains(desc.String(), "phpfpm_pod"), desc.String())
+			}
+
+			assert.NotZero(t, count, "sanity: the exporter must describe some metrics")
+		})
+	}
 }
 
 // The two discovery modes are mutually exclusive: with auto-tracking on, the
