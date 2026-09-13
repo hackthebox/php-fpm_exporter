@@ -18,3 +18,9 @@ vendor/
 
 # goreleaser
 dist/
+
+# Agent instructions are versioned with the code. Re-included because a global
+# ignore (~/.gitignore) excludes AGENTS.md everywhere; repo rules are read after
+# the global one, so this negation wins. CLAUDE.md is a symlink to it and stays
+# ignored.
+!AGENTS.md

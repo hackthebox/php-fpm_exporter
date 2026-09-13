@@ -1,0 +1,102 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+`AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it so every agent reads the same text.
+Workspace-wide conventions (git signing, branch naming, PR rules, CI patterns) live in `~/repos/htb/CLAUDE.md`
+and are not repeated here.
+
+## What this repo is
+
+Hack The Box's maintained fork of [hipages/php-fpm_exporter](https://github.com/hipages/php-fpm_exporter):
+a Prometheus exporter that talks FastCGI directly to PHP-FPM's `/status` page. No webserver in the path.
+
+- `origin` is `hackthebox/php-fpm_exporter`, `upstream` is `hipages/php-fpm_exporter`. Both remotes are configured.
+- Apache-2.0. Upstream file headers stay as-is; HTB-authored changes to an upstream file get an added
+  `Modified <year> by Hack The Box: <what and why>` note (see the top of `phpfpm/phpfpm.go`). New HTB files
+  carry an HTB copyright plus `SPDX-License-Identifier: Apache-2.0` (see `phpfpm/fcgi/fcgi.go`).
+- The module path is `github.com/hackthebox/php-fpm_exporter`. Renaming it breaks every import and the
+  release tooling; don't.
+- There is no `CONTRIBUTING.md`. `README.md` is user-facing docs and the contract for flags, env vars,
+  and the published metric list.
+
+## Commands
+
+Go toolchain is pinned by `mise.toml`; `mise install` before anything else. Note CI resolves Go from the
+`go` directive in `go.mod` (`go-version-file: go.mod`), which trails the mise pin. A change that needs a
+newer language version has to move `go.mod`, not just `mise.toml`.
+
+```bash
+make test          # go test -short ./...  (no test reads testing.Short, so this is the full unit suite)
+make lint          # golangci-lint run  (config in .golangci.yml, v2 schema)
+make fmt           # goimports -w .
+make test-coverage # writes .cover/cover.out
+make test-e2e      # bats test/e2e.bats -- needs docker-compose + bats-core, see README "Development"
+
+go test ./phpfpm -run TestCountProcessState -v   # single test
+go run . server --log.level=debug                # run locally against 127.0.0.1:9000
+```
+
+## Architecture
+
+`main.go` injects version/commit/date (goreleaser ldflags) and calls `cmd.Execute()`. Everything else is
+two packages:
+
+- `cmd/` — cobra CLI. `root.go` owns logging, viper config, and `mapEnvVars`, which is the only place
+  env-var-to-flag mapping happens (viper's `BindEnv` is deliberately not used; see the comment in
+  `cmd/server.go`). Adding a flag means adding it to the `envs` map too, and to the options table in
+  `README.md`. Three commands: `get` (one-shot dump), `server` (Prometheus endpoint), `version`.
+- `phpfpm/` — the library. `PoolManager` holds a slice of `Pool` (one per scrape URI); `Exporter`
+  implements `prometheus.Collector` and calls `PoolManager.Update()` on every scrape, fanning out one
+  goroutine per pool.
+- `phpfpm/fcgi/` — HTB's own minimal FastCGI client, replacing `tomasen/fcgi_client`. It exists solely
+  because every request must run under a hard connection deadline: without one, a stalled PHP-FPM
+  `/status` (e.g. during a graceful reload) leaked a goroutine and a socket per scrape. Keep the deadline.
+
+### Two target-discovery modes
+
+`server` runs in exactly one of them:
+
+- **Static** — `--phpfpm.scrape-uri` list, added to the `PoolManager` once at startup, pod label empty.
+- **Kubernetes auto-tracking** — `--k8s.autotracking`. `phpfpm/pod_discovery.go` lists pods matching
+  `--k8s.pod-labels` in `--k8s.namespace`, then runs a `RetryWatcher` in a background goroutine. The
+  initial list is what supplies the `ResourceVersion` the retry watcher needs. Pools are added when a pod
+  reaches `Running` with an IP and removed on delete; `PoolManager.PodPhases` tracks the last seen phase
+  so a Pending→Running transition is only acted on once. Requires in-cluster config (`rest.InClusterConfig`),
+  so it cannot run outside a pod.
+
+### Concurrency invariant
+
+The watcher goroutine mutates a `PoolManager` and publishes it via `Exporter.UpdatePoolManager`, which
+takes the exporter mutex and copies the struct. `Exporter.Collect` holds the same mutex. That mutex is the
+only thing serialising discovery against scraping — anything new that touches `Exporter.PoolManager` has
+to go through `UpdatePoolManager`, not reach in directly.
+
+### Metric label contract
+
+`phpfpm/exporter.go` defines three label sets (`poolMetricLabels`, `processMetricLabels`,
+`processStateMetricLabels`) and a `*LabelValues` helper per set. Label names and order are a public
+contract: the Grafana dashboard in `grafana/` and downstream alerts key off them. `phpfpm_pod` is an
+HTB addition and is present but empty for statically configured pools.
+
+## CI and release
+
+Workflows in `.github/workflows/`, all actions pinned by SHA:
+
+- `test_pr.yml` / `test_push.yml` — lint (`golangci-lint`, `only-new-issues: true`, so pre-existing
+  findings do not block), `go test ./...`, and a goreleaser `--snapshot` build scanned with Anchore.
+- `release.yml` — manual or monthly. semantic-release tags from `master`, then goreleaser publishes
+  binaries plus multi-arch images to Docker Hub and GHCR (`.goreleaser.yml`, `Dockerfile.goreleaser`).
+- `build-and-push.yml` — on a `v*` tag, builds the plain `Dockerfile` and pushes to HTB's ECR via OIDC.
+  This is the image the HTB clusters actually run, and it is a separate build from the goreleaser one.
+
+`Dockerfile` (ECR path) and `Dockerfile.goreleaser` (public path) are both live. A build change usually
+needs both.
+
+## Gotchas
+
+- `test/e2e.bats` asserts on metric lines that predate the `phpfpm_pod` label and nothing in CI runs bats,
+  so the e2e suite is not a gate and its assertions may not match current output. Check before trusting it.
+- `.releaserc` still points `repositoryUrl` at the upstream hipages repo, and several `README.md` badges do
+  too. Intentional so far, but it means release metadata is not a reliable source for "where does this live".
+- The repo has no `.crap-gated` marker, so the touchstone per-function gate does not apply here.
