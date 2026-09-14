@@ -1,6 +1,6 @@
 {
   "projectName": "php-fpm_exporter",
-  "projectOwner": "hipages",
+  "projectOwner": "hackthebox",
   "repoType": "github",
   "repoHost": "https://github.com",
   "files": [
@@ -97,7 +97,7 @@
     },
     {
       "login": "stchr",
-      "name": "Simon Stücher",
+      "name": "Simon St\u00fccher",
       "avatar_url": "https://avatars.githubusercontent.com/u/166079?v=4",
       "profile": "https://github.com/stchr",
       "contributions": [
@@ -106,11 +106,43 @@
     },
     {
       "login": "andresterba",
-      "name": "André Sterba",
+      "name": "Andr\u00e9 Sterba",
       "avatar_url": "https://avatars.githubusercontent.com/u/48120735?v=4",
       "profile": "https://sterba.dev",
       "contributions": [
         "code"
+      ]
+    },
+    {
+      "login": "ClementineM12",
+      "name": "Christina Moraiti",
+      "avatar_url": "https://avatars.githubusercontent.com/u/106354411?v=4",
+      "profile": "https://github.com/ClementineM12",
+      "contributions": [
+        "code",
+        "doc"
+      ]
+    },
+    {
+      "login": "vlasopoulos",
+      "name": "Vasilis Vlasopoulos",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1096466?v=4",
+      "profile": "https://github.com/vlasopoulos",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "dimoschi",
+      "name": "Dimosthenis Schizas",
+      "avatar_url": "https://avatars.githubusercontent.com/u/13113025?v=4",
+      "profile": "https://www.schizas.me/",
+      "contributions": [
+        "code",
+        "doc",
+        "infra",
+        "maintenance",
+        "test"
       ]
     }
   ],

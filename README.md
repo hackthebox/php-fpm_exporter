@@ -1,30 +1,34 @@
 # php-fpm_exporter
 
-![Test](https://github.com/hipages/php-fpm_exporter/workflows/Test/badge.svg)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hipages/php-fpm_exporter)](https://goreportcard.com/report/github.com/hipages/php-fpm_exporter)
-[![GoDoc](https://godoc.org/github.com/hipages/php-fpm_exporter?status.svg)](https://godoc.org/github.com/hipages/php-fpm_exporter)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=hipages_php-fpm_exporter&metric=alert_status)](https://sonarcloud.io/dashboard?id=hipages_php-fpm_exporter)
-[![Docker Pulls](https://img.shields.io/docker/pulls/hipages/php-fpm_exporter.svg)](https://hub.docker.com/r/hipages/php-fpm_exporter/)
-[![Average time to resolve an issue](http://isitmaintained.com/badge/resolution/hipages/php-fpm_exporter.svg)](http://isitmaintained.com/project/hipages/php-fpm_exporter "Average time to resolve an issue")
-[![Percentage of issues still open](http://isitmaintained.com/badge/open/hipages/php-fpm_exporter.svg)](http://isitmaintained.com/project/hipages/php-fpm_exporter "Percentage of issues still open")
-[![Open Source Helpers](https://www.codetriage.com/hipages/php-fpm_exporter/badges/users.svg)](https://www.codetriage.com/hipages/php-fpm_exporter)
-[![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg?style=flat-square)](#contributors)
+[![Test](https://github.com/hackthebox/php-fpm_exporter/actions/workflows/test.yml/badge.svg)](https://github.com/hackthebox/php-fpm_exporter/actions/workflows/test.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hackthebox/php-fpm_exporter)](https://goreportcard.com/report/github.com/hackthebox/php-fpm_exporter)
+[![Go Reference](https://pkg.go.dev/badge/github.com/hackthebox/php-fpm_exporter.svg)](https://pkg.go.dev/github.com/hackthebox/php-fpm_exporter)
+[![All Contributors](https://img.shields.io/badge/all_contributors-14-orange.svg?style=flat-square)](#contributors)
+
+> ### This is a fork
+>
+> Hack The Box's fork of [hipages/php-fpm_exporter](https://github.com/hipages/php-fpm_exporter),
+> originally created by Enrico Stahn and hipages, and used here under the Apache-2.0 licence.
+> Thank you for the original project.
+>
+> **We maintain this for Hack The Box's needs. Use at your own risk. Pull requests are welcome;
+> no support is promised.** If you need a supported product, this is not one.
+>
+> Upstream's last release was v2.2.0 in May 2022. This fork carries fixes for crashes and
+> incorrect metrics that upstream still has open. See [Differences from upstream](#differences-from-upstream).
+>
+> Images are published to **GHCR only**, not Docker Hub: `ghcr.io/hackthebox/php-fpm_exporter`.
 
 A [prometheus](https://prometheus.io/) exporter for PHP-FPM.
 The exporter connects directly to PHP-FPM and exports the metrics via HTTP.
 
 A webserver such as NGINX or Apache is **NOT** needed!
 
-> **Fork note:** This is Hack The Box's maintained fork of
-> [hipages/php-fpm_exporter](https://github.com/hipages/php-fpm_exporter),
-> originally created by Enrico Stahn and hipages. Thank you for the original
-> project, which this builds on under the Apache-2.0 license. (Some badges above
-> still reference the upstream repository.)
-
 ## Table of Contents
 
 <!-- toc -->
 
+- [Differences from upstream](#differences-from-upstream)
 - [Features](#features)
 - [Usage](#usage)
   * [Options and defaults](#options-and-defaults)
@@ -43,6 +47,45 @@ A webserver such as NGINX or Apache is **NOT** needed!
 
 <!-- tocstop -->
 
+## Differences from upstream
+
+Upstream's last release was [v2.2.0](https://github.com/hipages/php-fpm_exporter/releases) in May 2022.
+Everything below is fixed here and, at the time of writing, not upstream.
+
+**Crashes and hangs**
+
+* A malformed `--phpfpm.scrape-uri` no longer panics the process. `url.Parse` returns a nil URL
+  alongside its error and the result was dereferenced anyway, inside the scrape goroutine, so a
+  single typo took the exporter down. Present upstream since 2018.
+* `/metrics` no longer hangs and leaks a goroutine and socket per scrape when a PHP-FPM `/status`
+  stalls, for example during a graceful reload. Every request now runs under a connection deadline
+  ([upstream #253](https://github.com/hipages/php-fpm_exporter/issues/253), open since 2022).
+* Removing a pool no longer races its own loop. Under Kubernetes pod deletion this could index past
+  the end of the slice and panic.
+
+**Metrics correctness**
+
+* Every process stage PHP-FPM reports is counted. `Finishing`, `Ending` and `Getting request
+  information` sat in empty `switch` cases and vanished from the totals, so `phpfpm_total_processes`
+  drifted below the real process count under load
+  ([upstream #322](https://github.com/hipages/php-fpm_exporter/issues/322), open since 2023).
+* The `Creating` stage is recognised, instead of logging `Unknown process state 'Creating'` on every
+  scrape ([upstream #419](https://github.com/hipages/php-fpm_exporter/issues/419)).
+* A failed scrape is logged once per pool, not three times.
+
+**CLI behaviour**
+
+* `get --out json` emits valid JSON. `request duration` was rendered as a pointer address, so the
+  whole document failed to parse.
+* `get` exits non-zero when a target cannot be scraped, and rejects an unknown `--out` value.
+* An invalid `--log.level` falls back to `info` with a warning instead of killing the process.
+
+**Additions**
+
+* Kubernetes pod auto-tracking (`--k8s.autotracking`): discovers PHP-FPM pods by label and adds or
+  removes them as they come and go, adding a `phpfpm_pod` label. See
+  [Kubernetes Example](#kubernetes-example).
+
 ## Features
 
 * Export single or multiple pools
@@ -54,7 +97,7 @@ A webserver such as NGINX or Apache is **NOT** needed!
 
 ## Usage
 
-`php-fpm_exporter` is released as [binary](https://github.com/hipages/php-fpm_exporter/releases) and [docker](https://hub.docker.com/r/hipages/php-fpm_exporter/) image.
+`php-fpm_exporter` is released as a [binary](https://github.com/hackthebox/php-fpm_exporter/releases) and a [container image](https://github.com/hackthebox/php-fpm_exporter/pkgs/container/php-fpm_exporter) on GHCR.
 It uses sensible defaults which usually avoids the need to use command parameters or environment variables.
 
 `php-fpm_exporter` supports 2 commands, `get` and `server`.
@@ -118,13 +161,13 @@ If you like to have a more granular reporting please use `phpfpm_process_state`.
 
 * Run docker manually
   ```
-  docker pull hipages/php-fpm_exporter
-  docker run -it --rm -e PHP_FPM_SCRAPE_URI="tcp://127.0.0.1:9000/status,tcp://127.0.0.1:9001/status" hipages/php-fpm_exporter
+  docker pull ghcr.io/hackthebox/php-fpm_exporter
+  docker run -it --rm -e PHP_FPM_SCRAPE_URI="tcp://127.0.0.1:9000/status,tcp://127.0.0.1:9001/status" ghcr.io/hackthebox/php-fpm_exporter
   ```
 
 * Run the docker-compose example
   ```
-  git clone git@github.com:hipages/php-fpm_exporter.git
+  git clone git@github.com:hackthebox/php-fpm_exporter.git
   cd php-fpm_exporter/test
   docker-compose -p php-fpm_exporter up
   ```
@@ -229,7 +272,10 @@ Before starting any work, please either comment on an existing issue, or file a 
 
 ## Contributors
 
-Thanks goes to these wonderful people ([emoji key](https://github.com/all-contributors/all-contributors#emoji-key)):
+Thanks goes to these wonderful people ([emoji key](https://github.com/all-contributors/all-contributors#emoji-key)).
+
+Most of this exporter was written before Hack The Box ever forked it. The people below built it, and the
+fork stands on their work.
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
@@ -250,6 +296,11 @@ Thanks goes to these wonderful people ([emoji key](https://github.com/all-contri
     <td align="center"><a href="https://github.com/stchr"><img src="https://avatars.githubusercontent.com/u/166079?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Simon Stücher</b></sub></a><br /><a href="https://github.com/hipages/php-fpm_exporter/issues?q=author%3Astchr" title="Bug reports">🐛</a></td>
     <td align="center"><a href="https://sterba.dev"><img src="https://avatars.githubusercontent.com/u/48120735?v=4?s=100" width="100px;" alt=""/><br /><sub><b>André Sterba</b></sub></a><br /><a href="https://github.com/hipages/php-fpm_exporter/commits?author=andresterba" title="Code">💻</a></td>
   </tr>
+  <tr>
+    <td align="center"><a href="https://github.com/ClementineM12"><img src="https://avatars.githubusercontent.com/u/106354411?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Christina Moraiti</b></sub></a><br /><a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=ClementineM12" title="Code">💻</a> <a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=ClementineM12" title="Documentation">📖</a></td>
+    <td align="center"><a href="https://github.com/vlasopoulos"><img src="https://avatars.githubusercontent.com/u/1096466?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Vasilis Vlasopoulos</b></sub></a><br /><a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=vlasopoulos" title="Code">💻</a></td>
+    <td align="center"><a href="https://www.schizas.me/"><img src="https://avatars.githubusercontent.com/u/13113025?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Dimosthenis Schizas</b></sub></a><br /><a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=dimoschi" title="Code">💻</a> <a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=dimoschi" title="Documentation">📖</a> <a href="#infra-dimoschi" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a> <a href="#maintenance-dimoschi" title="Maintenance">🚧</a> <a href="https://github.com/hackthebox/php-fpm_exporter/commits?author=dimoschi" title="Tests">⚠️</a></td>
+  </tr>
 </table>
 
 <!-- markdownlint-restore -->
@@ -258,10 +309,6 @@ Thanks goes to these wonderful people ([emoji key](https://github.com/all-contri
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!
-
-## Stargazers over time
-
-[![Stargazers over time](https://starchart.cc/hipages/php-fpm_exporter.svg)](https://starchart.cc/hipages/php-fpm_exporter)
 
 ## Alternatives
 
