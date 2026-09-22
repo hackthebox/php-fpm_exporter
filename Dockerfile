@@ -1,4 +1,4 @@
-FROM golang:1.26.8-alpine AS builder
+FROM golang:1.27.0-alpine AS builder
 
 ENV GOOS=linux \
     GOARCH=amd64
@@ -11,7 +11,7 @@ RUN go mod download
 
 RUN go build -o php-fpm-exporter .
 
-FROM alpine:3.24.1
+FROM alpine:3.24.2
 
 COPY --from=builder /app/php-fpm-exporter .
 
