@@ -75,7 +75,7 @@ jobs:
       id: go
 
     - name: Run GoReleaser
-      uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+      uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
       with:
         version: '~> v2'
         args: release --clean --snapshot
@@ -98,7 +98,7 @@ jobs:
         fail-build: false
 
     - name: Upload Anchore scan SARIF report
-      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+      uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
       with:
         sarif_file: ${{ steps.scan.outputs.sarif }}
         category: image-scan
