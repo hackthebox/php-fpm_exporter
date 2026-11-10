@@ -72,7 +72,11 @@ body that grows past building a config and mapping an error to an exit code belo
   initial list is what supplies the `ResourceVersion` the retry watcher needs. Pools are added when a pod
   reaches `Running` with an IP and removed on delete; `PoolManager.PodPhases` tracks the last seen phase
   so a Pending→Running transition is only acted on once. Requires in-cluster config (`rest.InClusterConfig`),
-  so it cannot run outside a pod.
+  so it cannot run outside a pod. The `RetryWatcher` never retries a `410 Gone`; it closes its channel.
+  `runDiscovery` is the loop around it: when the watch ends it relists with backoff, `reconcilePods`
+  makes the pools match the list (deletes missed while the watch was down included), and it watches
+  again. `phpfpm_k8s_discovery_up` and `phpfpm_k8s_discovery_relists_total` report on that loop and are
+  emitted only in this mode.
 
 ### Concurrency invariant
 

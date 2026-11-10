@@ -84,7 +84,9 @@ Everything below is fixed here and, at the time of writing, not upstream.
 
 * Kubernetes pod auto-tracking (`--k8s.autotracking`): discovers PHP-FPM pods by label and adds or
   removes them as they come and go, adding a `phpfpm_pod` label. See
-  [Kubernetes Example](#kubernetes-example).
+  [Kubernetes Example](#kubernetes-example). When the pod watch ends (for example on a `410 Gone`),
+  discovery relists and reconciles its targets. `phpfpm_k8s_discovery_up` is `0` while the watch is
+  down, and `phpfpm_k8s_discovery_relists_total` counts the relists. Both exist only in this mode.
 
 ## Features
 

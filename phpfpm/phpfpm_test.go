@@ -31,6 +31,9 @@ import (
 // goroutine an earlier test left running.
 func TestMain(m *testing.M) {
 	SetLogger(testLogger{})
+	// Pod discovery waits before relisting; a test must not.
+	relistInitialDelay = time.Millisecond
+	relistMaxDelay = 10 * time.Millisecond
 	os.Exit(m.Run())
 }
 
