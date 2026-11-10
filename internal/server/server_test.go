@@ -393,6 +393,10 @@ func TestNewExporterMatchesThePodLabelToTheDiscoveryMode(t *testing.T) {
 
 			for desc := range descs {
 				count++
+				// The discovery metrics describe the exporter, not a pod.
+				if strings.Contains(desc.String(), "phpfpm_k8s_discovery_") {
+					continue
+				}
 				assert.Equal(t, tt.wantPodLabel, strings.Contains(desc.String(), "phpfpm_pod"), desc.String())
 			}
 

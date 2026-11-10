@@ -10,6 +10,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Modified 2026 by Hack The Box: added the phpfpm_pod label and the
+// phpfpm_k8s_discovery_* metrics, so that a stalled Kubernetes pod discovery
+// is visible on /metrics rather than only in a log line.
 
 // Package phpfpm provides convenient access to PHP-FPM pool data
 package phpfpm
@@ -17,6 +21,7 @@ package phpfpm
 import (
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -93,6 +98,14 @@ type Exporter struct {
 
 	podLabel bool
 
+	// Written by the pod discovery goroutine, read by Collect. Atomics rather
+	// than the mutex, so that discovery never waits behind a slow scrape.
+	discoveryUp      atomic.Bool
+	discoveryRelists atomic.Int64
+
+	discoveryUpDesc      *prometheus.Desc
+	discoveryRelistsDesc *prometheus.Desc
+
 	up                       *prometheus.Desc
 	scrapeFailues            *prometheus.Desc
 	startSince               *prometheus.Desc
@@ -134,6 +147,18 @@ func NewExporter(pm PoolManager, opts ...Option) *Exporter {
 		CountProcessState: false,
 
 		podLabel: options.podLabel,
+
+		discoveryUpDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "k8s", "discovery_up"),
+			"Is Kubernetes pod discovery working? 0 while the pod watch is down and the target list may be stale.",
+			nil,
+			nil),
+
+		discoveryRelistsDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, "k8s", "discovery_relists_total"),
+			"The number of times pod discovery had to relist pods because the watch ended, e.g. on a 410 Gone.",
+			nil,
+			nil),
 
 		up: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "", "up"),
@@ -256,6 +281,16 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	_ = e.PoolManager.Update()
 
 	e.collectPools(ch, e.PoolManager.Pools)
+
+	// Only auto-tracking has a discovery to report on.
+	if e.podLabel {
+		up := 0.0
+		if e.discoveryUp.Load() {
+			up = 1
+		}
+		ch <- prometheus.MustNewConstMetric(e.discoveryUpDesc, prometheus.GaugeValue, up)
+		ch <- prometheus.MustNewConstMetric(e.discoveryRelistsDesc, prometheus.CounterValue, float64(e.discoveryRelists.Load()))
+	}
 }
 
 func (e *Exporter) collectPools(ch chan<- prometheus.Metric, pools []Pool) {
@@ -339,6 +374,11 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.processLastRequestMemory
 	ch <- e.processLastRequestCPU
 	ch <- e.processRequestDuration
+
+	if e.podLabel {
+		ch <- e.discoveryUpDesc
+		ch <- e.discoveryRelistsDesc
+	}
 }
 
 // UpdatePoolManager updates the Pool Manager

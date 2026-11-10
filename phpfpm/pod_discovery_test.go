@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -415,5 +417,208 @@ func TestWatchPodEventsReturnsOnUnusableResourceVersion(t *testing.T) {
 	case <-returned:
 	case <-time.After(10 * time.Second):
 		t.Fatal("an unconstructable retry watcher must return, not spin")
+	}
+}
+
+func TestReconcilePodsDropsGonePodsAndAddsNewOnes(t *testing.T) {
+	pm := newPoolManager()
+	exporter := NewExporter(pm)
+	pm.initialPodEnlisting(exporter, &v1.PodList{Items: []v1.Pod{
+		*pod("stays", "10.0.0.1", v1.PodRunning),
+		*pod("deleted", "10.0.0.2", v1.PodRunning),
+		*pod("replaced", "10.0.0.3", v1.PodRunning),
+	}}, "9000")
+	pm.Pools[0].ScrapeFailures = 7
+
+	resourceVersion := pm.reconcilePods(exporter, &v1.PodList{
+		ListMeta: metav1.ListMeta{ResourceVersion: "99"},
+		Items: []v1.Pod{
+			*pod("stays", "10.0.0.1", v1.PodRunning),
+			// Same IP, different pod: the old pool must not survive under the old name.
+			*pod("replacement", "10.0.0.3", v1.PodRunning),
+			*pod("new", "10.0.0.4", v1.PodRunning),
+			*pod("pending", "", v1.PodPending),
+		},
+	}, "9000")
+
+	assert.Equal(t, "99", resourceVersion, "the relist's ResourceVersion seeds the next watch")
+
+	got := map[string]string{}
+	for _, p := range pm.Pools {
+		got[p.Address] = p.Pod
+	}
+	assert.Equal(t, map[string]string{
+		"tcp://10.0.0.1:9000/status": "stays",
+		"tcp://10.0.0.3:9000/status": "replacement",
+		"tcp://10.0.0.4:9000/status": "new",
+	}, got)
+	assert.Len(t, pm.Pools, 3, "a pod that was already enlisted must not be added twice")
+	assert.Equal(t, int64(7), pm.Pools[0].ScrapeFailures, "a surviving pool keeps its failure counter")
+
+	assert.Equal(t, map[string]v1.PodPhase{
+		"stays":       v1.PodRunning,
+		"replacement": v1.PodRunning,
+		"new":         v1.PodRunning,
+		"pending":     v1.PodPending,
+	}, pm.PodPhases, "phases of pods that no longer exist are forgotten")
+
+	assert.Len(t, exporter.PoolManager.Pools, 3, "the exporter must see the reconciled pools")
+}
+
+// The bug in hackthebox/php-fpm_exporter#35: the RetryWatcher never retries a
+// 410 Gone, so discovery used to end with it. It must relist, drop the pod that
+// was deleted while the watch was down, and go on watching.
+func TestRunDiscoveryRelistsAndResumesAfter410Gone(t *testing.T) {
+	logs := captureLogs(t)
+
+	stream := newWatchStream()
+	var watches atomic.Int32
+
+	srv := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("watch") != "true" {
+			writePodList(t, w, *pod("php-fpm-1", "10.0.0.2", v1.PodRunning))
+			return
+		}
+		if watches.Add(1) > 1 {
+			stream.serve(w, r)
+			return
+		}
+
+		gone, err := json.Marshal(&metav1.Status{
+			TypeMeta: metav1.TypeMeta{Kind: "Status", APIVersion: "v1"},
+			Status:   metav1.StatusFailure,
+			Message:  "too old resource version: 1 (2)",
+			Reason:   metav1.StatusReasonExpired,
+			Code:     http.StatusGone,
+		})
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(&metav1.WatchEvent{
+			Type:   string(apiWatch.Error),
+			Object: runtime.RawExtension{Raw: gone},
+		}))
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	pm := newPoolManager()
+	exporter := NewExporter(pm, WithPodLabel())
+	pm.initialPodEnlisting(exporter, &v1.PodList{Items: []v1.Pod{*pod("php-fpm-0", "10.0.0.1", v1.PodRunning)}}, "9000")
+	exporter.discoveryUp.Store(true)
+
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		pm.runDiscovery(ctx, exporter, srv.clients, newWatcher(srv.clients, "php", ""), "php", "", "1", "9000")
+	}()
+
+	requireLogged(t, logs, "Pod watch failed")
+	requireLogged(t, logs, "Relisted 1 pod(s)")
+
+	// The new watch must deliver events again.
+	stream.events <- apiWatch.Event{Type: apiWatch.Added, Object: pod("php-fpm-2", "10.0.0.3", v1.PodRunning)}
+	requireLogged(t, logs, "Pod in Running state detected php-fpm-2")
+
+	// Join before reading pm: the discovery goroutine owns it until then.
+	cancel()
+	select {
+	case <-returned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("cancelling the context must stop discovery")
+	}
+
+	pods := []string{}
+	for _, p := range pm.Pools {
+		pods = append(pods, p.Pod)
+	}
+	assert.Equal(t, []string{"php-fpm-1", "php-fpm-2"}, pods, "php-fpm-0 was deleted while the watch was down")
+	assert.Equal(t, int64(1), exporter.discoveryRelists.Load())
+	assert.True(t, exporter.discoveryUp.Load(), "discovery is up again once the relist succeeded")
+}
+
+// A relist that keeps failing must not end discovery either, and must be
+// visible: the gauge stays at 0 until a list succeeds.
+func TestRunDiscoveryReportsDownWhileRelistFails(t *testing.T) {
+	logs := captureLogs(t)
+
+	var failLists atomic.Bool
+	failLists.Store(true)
+	stream := newWatchStream()
+	var watches atomic.Int32
+
+	srv := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Query().Get("watch") == "true" && watches.Add(1) == 1:
+			// A 410 as the HTTP response, not as a watch event. Left alone, the
+			// RetryWatcher would retry it forever with the same resource version.
+			w.WriteHeader(http.StatusGone)
+		case r.URL.Query().Get("watch") == "true":
+			stream.serve(w, r)
+		case failLists.Load():
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			writePodList(t, w)
+		}
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	pm := newPoolManager()
+	exporter := NewExporter(pm, WithPodLabel())
+	exporter.discoveryUp.Store(true)
+
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		pm.runDiscovery(ctx, exporter, srv.clients, newWatcher(srv.clients, "php", ""), "php", "", "1", "9000")
+	}()
+
+	requireLogged(t, logs, "Pod discovery is stalled")
+	assert.False(t, exporter.discoveryUp.Load(), "a stalled discovery must report down")
+	assert.InDelta(t, 0, gatherValue(t, exporter, "phpfpm_k8s_discovery_up"), 0)
+
+	failLists.Store(false)
+	requireLogged(t, logs, "Relisted 0 pod(s)")
+
+	cancel()
+	<-returned
+	assert.True(t, exporter.discoveryUp.Load())
+	assert.InDelta(t, 1, gatherValue(t, exporter, "phpfpm_k8s_discovery_up"), 0)
+	assert.InDelta(t, 1, gatherValue(t, exporter, "phpfpm_k8s_discovery_relists_total"), 0)
+}
+
+func gatherValue(t *testing.T, exporter *Exporter, name string) float64 {
+	t.Helper()
+
+	registry := prometheus.NewRegistry()
+	require.NoError(t, registry.Register(exporter))
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		require.Len(t, family.GetMetric(), 1)
+		if gauge := family.GetMetric()[0].GetGauge(); gauge != nil {
+			return gauge.GetValue()
+		}
+		return family.GetMetric()[0].GetCounter().GetValue()
+	}
+
+	t.Fatalf("metric %s is not exported", name)
+	return 0
+}
+
+func TestDiscoveryMetricsAreAbsentWithoutAutoTracking(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	require.NoError(t, registry.Register(NewExporter(PoolManager{})))
+
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		assert.NotContains(t, family.GetName(), "k8s_discovery", "static targets have no discovery to report on")
 	}
 }
